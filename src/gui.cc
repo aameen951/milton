@@ -16,7 +16,7 @@
 #define BOUNDS_RADIUS_PX 80
 
 void
-gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f32 brush_window_height)
+gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f32 *y)
 {
     float ui_scale = milton->gui->scale;
     MiltonGui* gui = milton->gui;
@@ -24,8 +24,11 @@ gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
     CanvasState* canvas = milton->canvas;
 
     // Layer window
-    ImGui::SetNextWindowPos(ImVec2(ui_scale*10, ui_scale*20 + (float)pbounds.bottom + brush_window_height ), ImGuiSetCond_FirstUseEver);
+    *y += ui_scale * 20;
+    ImGui::SetNextWindowPos(ImVec2(ui_scale*10, *y), ImGuiSetCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(ui_scale*300, ui_scale*220), ImGuiSetCond_FirstUseEver);
+    *y += ui_scale * 220;
+
     if ( ImGui::Begin(loc(TXT_layers)) ) {
         CanvasView* view = milton->view;
         // left
@@ -263,8 +266,63 @@ gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
 
 
 void
-gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton)
+gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milton, float *y)
 {
+    const f32 ui_scale = milton->gui->scale;
+
+    *y += ui_scale * 10;
+    ImGui::SetNextWindowPos(ImVec2(ui_scale * 10, *y), ImGuiSetCond_FirstUseEver);
+    ImGui::SetNextWindowSize({ui_scale * 300, ui_scale * 200}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
+    *y += ui_scale * 200;
+
+    MiltonGui* gui = milton->gui;
+
+    auto dbg = milton->debug;
+
+    if ( ImGui::Begin("Debug Stroke Smoothness", NULL) ) {
+
+        if(!dbg->is_capturing)
+        {
+            if ( ImGui::Button("Start Capture") ) {
+                dbg->is_capturing = true;
+            }
+        }
+        else
+        {
+            if ( ImGui::Button("Stop Capture") ) {
+                dbg->is_capturing = false;
+            }
+        }
+        if(dbg->points->count)
+        {
+            if ( ImGui::Button("Clear") ) {
+                reset(dbg->points);
+                dbg->update_stroke = true;
+                dbg->full_render = true;
+            }
+        }
+        if ( ImGui::Checkbox("Visible", &dbg->visible) ) {
+            dbg->full_render = true;
+        }
+        if ( ImGui::Checkbox("Enable Smooth", &dbg->enable_smooth) ) {
+            dbg->update_stroke = true;
+            dbg->full_render = true;
+        }
+    }
+    ImGui::End();  // Brushes
+}
+
+void
+gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, float *y)
+{
+    const f32 ui_scale = milton->gui->scale;
+    const f32 brush_window_height = ui_scale * 250;
+
+    *y += ui_scale * 10;
+    ImGui::SetNextWindowPos(ImVec2(ui_scale * 10, *y), ImGuiSetCond_FirstUseEver);
+    ImGui::SetNextWindowSize({ui_scale * 300, brush_window_height}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
+    *y += brush_window_height;
+
     b32 show_brush_window = (current_mode_is_for_drawing(milton));
     auto default_imgui_window_flags = ImGuiWindowFlags_NoCollapse;
     MiltonGui* gui = milton->gui;
@@ -691,13 +749,14 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
         /* ImGuiSetCond_Once          = 1 << 1, // Only set the variable on the first call per runtime session */
         /* ImGuiSetCond_FirstUseEver */
 
-        const f32 brush_window_height = ui_scale * 250;
-        ImGui::SetNextWindowPos(ImVec2(ui_scale * 10, ui_scale * 10 + (float)pbounds.bottom), ImGuiSetCond_FirstUseEver);
-        ImGui::SetNextWindowSize({ui_scale * 300, brush_window_height}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
 
-        gui_brush_window(input, platform, milton);
+        float y = (float)pbounds.bottom;
 
-        gui_layer_window(input, platform, milton, brush_window_height);
+        gui_brush_window(input, platform, milton, &y);
+
+        gui_layer_window(input, platform, milton, &y);
+
+        gui_stoke_debug_window(input, platform, milton, &y);
 
         // Settings window
         if ( show_settings ) {

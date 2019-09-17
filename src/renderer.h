@@ -56,6 +56,7 @@ struct Stroke;
 struct Layer;
 struct Milton;
 struct CanvasState;
+struct StrokeDebugContext;
 
 RenderBackend* gpu_allocate_render_backend(Arena* arena);
 
@@ -111,7 +112,7 @@ enum ClipFlags
 void gpu_clip_strokes_and_update(Arena* arena,
                                  RenderBackend* renderer,
                                  CanvasView* view, i64 render_scale,
-                                 Layer* root_layer, Stroke* working_stroke, Grid *working_grid,
+                                 Layer* root_layer, Stroke* working_stroke, Grid *working_grid, StrokeDebugContext *debug,
                                  i32 x, i32 y, i32 w, i32 h, ClipFlags flags = ClipFlags_JUST_CLIP);
 
 void gpu_reset_render_flags(RenderBackend* renderer, int flags);

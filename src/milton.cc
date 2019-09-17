@@ -405,6 +405,74 @@ milton_render_scale(Milton* milton)
     return milton_render_scale_with_interpolation(milton, interp);
 }
 
+void debug_update_stroke(Milton *milton)
+{
+    auto dbg = milton->debug;
+    auto ws = milton->debug->ws;
+
+    ws->brush = milton_get_brush(milton);
+    ws->layer_id = milton->view->working_layer_id;
+
+    ws->num_points = 0;
+    ws->render_element.count = 0;
+    ws->bounding_rect = rect_without_size();
+
+    reserve(dbg->ws_points, dbg->points->count);
+    reserve(dbg->ws_pressures, dbg->points->count);
+
+    ws->points = dbg->ws_points->data;
+    ws->pressures = dbg->ws_pressures->data;
+    ws->num_points = dbg->points->count;
+
+    if(dbg->enable_smooth && ws->num_points)
+    {
+        clear_smooth_filter(dbg->smooth_filter, dbg->points->data[0].point);
+    }
+
+    for(int i=0; i<ws->num_points; i++)
+    {
+        auto point = dbg->points->data[i].point;
+        if(dbg->enable_smooth)
+        {
+            point = smooth_filter(dbg->smooth_filter, point);
+        }
+        ws->points[i] = point;
+        ws->pressures[i] = dbg->points->data[i].pressure;
+    }
+
+    dbg->full_render = true;
+}
+f32 get_pressure(MiltonInput *input, int input_i)
+{
+    f32 pressure = NO_PRESSURE_INFO;
+    if ( input->pressures[input_i] != NO_PRESSURE_INFO ) {
+        f32 pressure_min = 0.01f;
+        pressure = pressure_min + input->pressures[input_i] * (1.0f - pressure_min);
+    } else {
+        pressure = 1.0f;
+    }
+    return pressure;
+}
+static void 
+debug_stroke_input(Milton *milton, MiltonInput *input)
+{
+    if ( !milton->debug->is_capturing ) return ;
+    if ( input->input_count == 0 ) return ;
+
+    milton->debug->update_stroke = true;
+    for ( int input_i = 0; input_i < input->input_count; ++input_i ) {
+
+        v2l in_point = input->points[input_i];
+        v2l canvas_point = raster_to_canvas(milton->view, in_point);
+        f32 pressure = get_pressure(input, input_i);
+
+        auto p = add(milton->debug->points);
+        p->point = canvas_point;
+        p->pressure = pressure;
+    }
+
+}
+
 static void
 milton_stroke_input(Milton* milton, MiltonInput* input)
 {
@@ -1356,9 +1424,13 @@ milton_update_and_render(Milton* milton, MiltonInput* input)
                     milton_grid_input(milton, input, end_stroke);
                 }
                 else {  // Input for eraser and pen
+                    debug_stroke_input(milton, input);
                     Stroke* ws = &milton->working_stroke;
                     auto prev_num_points = ws->num_points;
-                    milton_stroke_input(milton, input);
+                    if(!milton->debug->is_capturing)
+                    {
+                        milton_stroke_input(milton, input);
+                    }
                     if ( prev_num_points == 0 && ws->num_points > 0 ) {
                         // New stroke. Clear screen without blur.
                         milton->render_settings.do_full_redraw = true;
@@ -1366,6 +1438,23 @@ milton_update_and_render(Milton* milton, MiltonInput* input)
                 }
             }
         }
+    }
+
+    if(milton->debug->update_stroke)
+    {
+        debug_update_stroke(milton);
+        milton->debug->update_stroke = false;
+    }
+    if(milton->debug->full_render)
+    {
+        milton->render_settings.do_full_redraw = true;
+        milton->debug->full_render = false;
+    }
+    else if(milton->debug->custom_render)
+    {
+        draw_custom_rectangle = true;
+        custom_rectangle = milton->debug->render_rectangle;
+        milton->debug->custom_render = false;
     }
 
     if ( milton->current_mode == MiltonMode::EXPORTING ) {
@@ -1516,45 +1605,45 @@ milton_update_and_render(Milton* milton, MiltonInput* input)
                     gpu_update_picker(milton->renderer, &milton->gui->picker);
                 }
                 // Copy current stroke.
-                Stroke new_stroke = {};
-                CanvasState* canvas = milton->canvas;
-                copy_stroke(&canvas->arena, milton->view, &milton->working_stroke, &new_stroke);
-                {
-                    new_stroke.brush = milton->working_stroke.brush;
-                    new_stroke.layer_id = milton->view->working_layer_id;
-                    new_stroke.bounding_rect = rect_union(bounding_box_for_stroke(&new_stroke),
-                                                        bounding_box_for_stroke(&new_stroke));
+                // Stroke new_stroke = {};
+                // CanvasState* canvas = milton->canvas;
+                // copy_stroke(&canvas->arena, milton->view, &milton->working_stroke, &new_stroke);
+                // {
+                //     new_stroke.brush = milton->working_stroke.brush;
+                //     new_stroke.layer_id = milton->view->working_layer_id;
+                //     new_stroke.bounding_rect = rect_union(bounding_box_for_stroke(&new_stroke),
+                //                                         bounding_box_for_stroke(&new_stroke));
 
-                    new_stroke.id = milton->canvas->stroke_id_count++;
+                //     new_stroke.id = milton->canvas->stroke_id_count++;
 
-                    draw_custom_rectangle = true;
-                    Rect bounds = new_stroke.bounding_rect;
-                    bounds.top_left = canvas_to_raster(milton->view, bounds.top_left);
-                    bounds.bot_right = canvas_to_raster(milton->view, bounds.bot_right);
-                    custom_rectangle = rect_union(custom_rectangle, bounds);
-                }
+                //     draw_custom_rectangle = true;
+                //     Rect bounds = new_stroke.bounding_rect;
+                //     bounds.top_left = canvas_to_raster(milton->view, bounds.top_left);
+                //     bounds.bot_right = canvas_to_raster(milton->view, bounds.bot_right);
+                //     custom_rectangle = rect_union(custom_rectangle, bounds);
+                // }
 
-                mlt_assert(new_stroke.num_points > 0);
-                mlt_assert(new_stroke.num_points <= STROKE_MAX_POINTS);
-                auto* stroke = layer::layer_push_stroke(milton->canvas->working_layer, new_stroke);
+                // mlt_assert(new_stroke.num_points > 0);
+                // mlt_assert(new_stroke.num_points <= STROKE_MAX_POINTS);
+                // auto* stroke = layer::layer_push_stroke(milton->canvas->working_layer, new_stroke);
 
-                // Invalidate working stroke render element
+                // // Invalidate working stroke render element
 
-                HistoryElement h = { HistoryElement_STROKE_ADD, milton->canvas->working_layer->id };
-                push(&milton->canvas->history, h);
+                // HistoryElement h = { HistoryElement_STROKE_ADD, milton->canvas->working_layer->id };
+                // push(&milton->canvas->history, h);
 
-                reset_working_stroke(milton);
+                // reset_working_stroke(milton);
 
-                clear_stroke_redo(milton);
+                // clear_stroke_redo(milton);
 
-                // Make sure we show blurred layers when finishing a stroke.
-                render_flags |= RenderBackendFlags_WITH_BLUR;
-                milton->render_settings.do_full_redraw = true;
+                // // Make sure we show blurred layers when finishing a stroke.
+                // render_flags |= RenderBackendFlags_WITH_BLUR;
+                // milton->render_settings.do_full_redraw = true;
 
-                // Update save block
-                SaveBlockHeader header = {};
-                header.type = Block_LAYER_CONTENT;
-                header.block_layer.id = milton->view->working_layer_id;
+                // // Update save block
+                // SaveBlockHeader header = {};
+                // header.type = Block_LAYER_CONTENT;
+                // header.block_layer.id = milton->view->working_layer_id;
             }
         }
     }
@@ -1781,7 +1870,7 @@ milton_update_and_render(Milton* milton, MiltonInput* input)
     i64 render_scale = milton_render_scale(milton);
 
     gpu_clip_strokes_and_update(&milton->root_arena, milton->renderer, milton->view, render_scale,
-                                milton->canvas->root_layer, &milton->working_stroke, milton->working_grid,
+                                milton->canvas->root_layer, &milton->working_stroke, milton->working_grid, milton->debug,
                                 view_x, view_y, view_width, view_height, clip_flags);
     PROFILE_GRAPH_END(clipping);
 

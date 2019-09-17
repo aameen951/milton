@@ -162,6 +162,31 @@ struct RenderSettings
 {
     b32 do_full_redraw;
 };
+struct PointPressure
+{
+    v2l point;
+    f32 pressure;
+};
+struct StrokeDebugContext
+{
+    b32 is_capturing;
+
+    bool visible;
+
+    bool enable_smooth;
+    SmoothFilter smooth_filter[1];
+
+    b32 full_render;
+    b32 custom_render;
+    Rect render_rectangle;
+
+    DArray<PointPressure> points[1];
+
+    b32 update_stroke;
+    Stroke ws[1];
+    DArray<v2l> ws_points[1];
+    DArray<f32> ws_pressures[1];
+};
 
 struct Milton
 {
@@ -169,6 +194,8 @@ struct Milton
 
     i32 max_width;
     i32 max_height;
+
+    StrokeDebugContext debug[1];
 
 #if MILTON_SAVE_ASYNC
     SDL_mutex*  save_mutex;

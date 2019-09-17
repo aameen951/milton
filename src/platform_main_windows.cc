@@ -1,18 +1,20 @@
 // Copyright (c) 2015 Sergio Gonzalez. All rights reserved.
 // License: https://github.com/serge-rgb/milton#license
 
-int
-CALLBACK WinMain(HINSTANCE hInstance,
-                 HINSTANCE hPrevInstance,
-                 LPSTR lpCmdLine,
-                 int nCmdShow)
+// int
+// CALLBACK WinMain(HINSTANCE hInstance,
+//                  HINSTANCE hPrevInstance,
+//                  LPSTR lpCmdLine,
+//                  int nCmdShow)
+#undef main
+void main(int argc, char **argv)
 {
     win32_cleanup_appdata();
     PATH_CHAR path[MAX_PATH] = TO_PATH_STR("milton.log");
     platform_fname_at_config(path, MAX_PATH);
     g_win32_logfile = platform_fopen(path, TO_PATH_STR("w"));
     char cmd_line[MAX_PATH] = {};
-    strncpy(cmd_line, lpCmdLine, MAX_PATH);
+    // strncpy(cmd_line, lpCmdLine, MAX_PATH);
 
     bool is_fullscreen = false;
     //TODO: proper cmd parsing
