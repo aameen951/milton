@@ -405,6 +405,118 @@ milton_render_scale(Milton* milton)
     return milton_render_scale_with_interpolation(milton, interp);
 }
 
+static void
+debug_set_ws_point_count(StrokeDebugContext *dbg, i32 count)
+{
+    auto ws = dbg->ws;
+    reserve(dbg->ws_points, count);
+    reserve(dbg->ws_pressures, count);
+
+    ws->points = dbg->ws_points->data;
+    ws->pressures = dbg->ws_pressures->data;
+}
+static void
+copy_with_smooth_interpolation(StrokeDebugContext *dbg, CanvasView *view)
+{
+    i32 num_points = dbg->points->count;
+
+    // At most we are adding twice as many points. This is wasteful but at the moment it looks like
+    // a reasonable tradeoff vs the complexity/perf hit of using something smaller.
+
+    if ( num_points >= 4 && 2*num_points <= STROKE_MAX_POINTS ) {
+        debug_set_ws_point_count(dbg, 2*num_points+2);
+
+        auto ws = dbg->ws;
+        for(i32 i=0; i<4; i++)
+        {
+            ws->points[i] = dbg->points->data[i].point;
+            ws->pressures[i] = dbg->points->data[i].pressure;
+        }
+
+        i32 out_i = 2;
+
+        // Go through each four consecutive points in the stroke and copy them to new array, but do
+        // interpolation with a cubic Bezier.
+
+        // Relative to center to maintain precision.
+        v2l canvas_center = raster_to_canvas(view, VEC2L(view->screen_size/2));
+        v2f a = {}; // Will get copied from b in the loop below.
+        v2f b = v2l_to_v2f(dbg->points->data[0].point - canvas_center);
+        v2f c = v2l_to_v2f(dbg->points->data[1].point - canvas_center);
+        v2f d = v2l_to_v2f(dbg->points->data[2].point - canvas_center);
+
+        for ( i32 i = 3; i < num_points; ++i ) {
+            a = b;
+            b = c;
+            c = d;
+            d = v2l_to_v2f(dbg->points->data[i].point - canvas_center);
+
+            if ( out_i >= (2*num_points)-1 ) {
+                break;  // Keep the stroke from becoming larger than we support.
+            }
+
+            float scale = 0.5f;
+            v2f p0 = a;
+            v2f p1 = b - ((a - b) * scale);
+            v2f p2 = c - ((d - c) * scale);
+            v2f p3 = d;
+
+            // Diffs to calculate angle
+            v2f d0 = p0 - p1;
+            v2f d1 = p2 - p1;
+            v2f d2 = p1 - p2;
+            v2f d3 = p3 - p2;
+
+            float n0 = fabs(DOT(d0, d1)) / (magnitude(d0) * magnitude(d1));
+            float n1 = fabs(DOT(d2, d3)) / (magnitude(d2) * magnitude(d3));
+
+            // If the sum of both angles is greater than this threshold, interpolate.
+            float cos_min_angle = 0.05f;
+            if ( 2 - n0 - n1 > cos_min_angle*2 ) {
+                v2f n = {};
+                n = n + p0 * 0.125f;
+                n = n + p1 * 0.375f;
+                n = n + p2 * 0.375f;
+                n = n + p3 * 0.125f;
+
+                ws->pressures[out_i] = dbg->points->data[i - 2].pressure;
+                ws->points[out_i++] = v2f_to_v2l(b) + canvas_center;
+
+                ws->pressures[out_i] = ws->pressures[out_i-1]; // Use the same pressure value as last point.
+                ws->points[out_i++] = v2f_to_v2l(n) + canvas_center;
+            } else {
+                ws->points[out_i] = dbg->points->data[i-2].point;
+                ws->pressures[out_i++] = dbg->points->data[i-2].pressure;
+            }
+
+            // Always add the last point.
+            if ( i == num_points - 1 ) {
+                ws->pressures[out_i] = dbg->points->data[i].pressure;
+                ws->points[out_i++] = dbg->points->data[i].point;
+            }
+        }
+
+        ws->num_points = out_i;
+    }
+    // Four or less points in stroke, or stroke is too large.
+    else {
+        debug_set_ws_point_count(dbg, num_points);
+
+        auto ws = dbg->ws;
+        for(i32 i=0; i<num_points; i++)
+        {
+            ws->points[i] = dbg->points->data[i].point;
+            ws->pressures[i] = dbg->points->data[i].pressure;
+        }
+        ws->num_points = num_points;
+    }
+}
+
+void debug_init(Milton *milton)
+{
+    auto dbg = milton->debug;
+    dbg->visible = true;
+}
 void debug_update_stroke(Milton *milton)
 {
     auto dbg = milton->debug;
@@ -417,27 +529,41 @@ void debug_update_stroke(Milton *milton)
     ws->render_element.count = 0;
     ws->bounding_rect = rect_without_size();
 
-    reserve(dbg->ws_points, dbg->points->count);
-    reserve(dbg->ws_pressures, dbg->points->count);
-
-    ws->points = dbg->ws_points->data;
-    ws->pressures = dbg->ws_pressures->data;
-    ws->num_points = dbg->points->count;
-
-    if(dbg->enable_smooth && ws->num_points)
+    if(dbg->smooth_algorithm == SmoothAlgorithm_Raw)
     {
-        clear_smooth_filter(dbg->smooth_filter, dbg->points->data[0].point);
-    }
+        debug_set_ws_point_count(dbg, dbg->points->count);
+        ws->num_points = dbg->points->count;
 
-    for(int i=0; i<ws->num_points; i++)
-    {
-        auto point = dbg->points->data[i].point;
-        if(dbg->enable_smooth)
+        for(int i=0; i<ws->num_points; i++)
         {
-            point = smooth_filter(dbg->smooth_filter, point);
+            ws->points[i] = dbg->points->data[i].point;
+            ws->pressures[i] = dbg->points->data[i].pressure;
         }
-        ws->points[i] = point;
-        ws->pressures[i] = dbg->points->data[i].pressure;
+    }
+    else if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints)
+    {
+        debug_set_ws_point_count(dbg, dbg->points->count);
+        ws->num_points = dbg->points->count;
+
+        if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints && ws->num_points)
+        {
+            clear_smooth_filter(dbg->smooth_filter, dbg->points->data[0].point);
+        }
+
+        for(int i=0; i<ws->num_points; i++)
+        {
+            auto point = dbg->points->data[i].point;
+            if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints)
+            {
+                point = smooth_filter(dbg->smooth_filter, point);
+            }
+            ws->points[i] = point;
+            ws->pressures[i] = dbg->points->data[i].pressure;
+        }
+    }
+    else if(dbg->smooth_algorithm == SmoothAlgorithm_OldMiltonCubic)
+    {
+        copy_with_smooth_interpolation(dbg, milton->view);
     }
 
     dbg->full_render = true;
@@ -795,6 +921,8 @@ milton_init(Milton* milton, i32 width, i32 height, f32 ui_scale, PATH_CHAR* file
         milton->save_cond = SDL_CreateCond();
         milton->save_thread = SDL_CreateThread(milton_save_thread, "Save thread", (void*)milton);
     #endif
+
+    debug_init(milton);
 }
 
 void

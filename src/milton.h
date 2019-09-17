@@ -158,6 +158,12 @@ struct PeekOut
     v2l end_pan;
 };
 
+enum SmoothAlgorithm
+{
+    SmoothAlgorithm_Raw,
+    SmoothAlgorithm_AverageLastNPoints,
+    SmoothAlgorithm_OldMiltonCubic,
+};
 struct RenderSettings
 {
     b32 do_full_redraw;
@@ -173,7 +179,7 @@ struct StrokeDebugContext
 
     bool visible;
 
-    bool enable_smooth;
+    SmoothAlgorithm smooth_algorithm;
     SmoothFilter smooth_filter[1];
 
     b32 full_render;

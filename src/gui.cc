@@ -304,9 +304,18 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
         if ( ImGui::Checkbox("Visible", &dbg->visible) ) {
             dbg->full_render = true;
         }
-        if ( ImGui::Checkbox("Enable Smooth", &dbg->enable_smooth) ) {
-            dbg->update_stroke = true;
-            dbg->full_render = true;
+
+        ImGui::Text("Smooth Algorithm:");
+        {
+            bool toggle = false;
+            toggle = ImGui::RadioButton("Raw",                   (int *)&dbg->smooth_algorithm, SmoothAlgorithm_Raw) || toggle;
+            toggle = ImGui::RadioButton("Average Last N Points", (int *)&dbg->smooth_algorithm, SmoothAlgorithm_AverageLastNPoints) || toggle;
+            toggle = ImGui::RadioButton("Old Milton Cubic",      (int *)&dbg->smooth_algorithm, SmoothAlgorithm_OldMiltonCubic) || toggle;
+
+            if ( toggle ) {
+                dbg->update_stroke = true;
+                dbg->full_render = true;
+            }
         }
     }
     ImGui::End();  // Brushes
