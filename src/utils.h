@@ -48,6 +48,7 @@ v2l v2i_to_v2l(v2i p);
 #define kPi 3.14152654f
 
 #define DOT(a, b)  ((a).x * (b).x + (a).y * (b).y)
+#define DET(a, b)  ((a).x * (b).y - (a).y * (b).x)
 
 #define I64_MAX 9223372036854775807L
 #define I64_MIN -9223372036854775808L
@@ -80,6 +81,7 @@ b32 is_inside_triangle(v2f point, v2f a, v2f b, v2f c);
 v2f polar_to_cartesian(f32 angle, f32 radius);
 
 v2i rotate_v2i(v2i p, f32 angle);
+v2f rotate_v2f(v2f p, f32 angle);
 
 v2f closest_point_in_segment_f(i32 ax, i32 ay,
                                i32 bx, i32 by,

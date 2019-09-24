@@ -42,6 +42,16 @@ typedef Vector2<float>   v2f;
         v.y OP f,       \
     };                  \
     return r;           \
+}                       \
+        template<typename T> \
+        Vector2<T> operator OP (T f, const Vector2<T>& v) \
+{                       \
+                        \
+    Vector2<T> r = {    \
+        v.x OP f,       \
+        v.y OP f,       \
+    };                  \
+    return r;           \
 }
 #define operator2_vector(OP) \
         template<typename T> \

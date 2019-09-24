@@ -163,6 +163,8 @@ enum SmoothAlgorithm
     SmoothAlgorithm_Raw,
     SmoothAlgorithm_AverageLastNPoints,
     SmoothAlgorithm_OldMiltonCubic,
+    SmoothAlgorithm_CatmullRomSpline,
+    SmoothAlgorithm_DynamicCatmullRomSpline,
 };
 struct RenderSettings
 {
@@ -173,25 +175,34 @@ struct PointPressure
     v2l point;
     f32 pressure;
 };
+struct CapturedStroke
+{
+    DArray<PointPressure> points[1];
+    i32 radius;
+    b32 update_stroke;
+    Stroke ws[1];
+    DArray<v2l> ws_points[1];
+    DArray<f32> ws_pressures[1];
+};
 struct StrokeDebugContext
 {
     b32 is_capturing;
 
     bool visible;
 
+    bool mark_points;
+    bool is_point_mode;
+    bool need_new_point;
     SmoothAlgorithm smooth_algorithm;
+    int catmul_min_length;
     SmoothFilter smooth_filter[1];
 
     b32 full_render;
     b32 custom_render;
     Rect render_rectangle;
 
-    DArray<PointPressure> points[1];
-
-    b32 update_stroke;
-    Stroke ws[1];
-    DArray<v2l> ws_points[1];
-    DArray<f32> ws_pressures[1];
+    DArray<CapturedStroke> strokes[1];
+    CapturedStroke *current_stroke;
 };
 
 struct Milton

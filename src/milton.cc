@@ -406,31 +406,31 @@ milton_render_scale(Milton* milton)
 }
 
 static void
-debug_set_ws_point_count(StrokeDebugContext *dbg, i32 count)
+debug_set_ws_point_count(CapturedStroke *cs, i32 count)
 {
-    auto ws = dbg->ws;
-    reserve(dbg->ws_points, count);
-    reserve(dbg->ws_pressures, count);
+    auto ws = cs->ws;
+    reserve(cs->ws_points, count);
+    reserve(cs->ws_pressures, count);
 
-    ws->points = dbg->ws_points->data;
-    ws->pressures = dbg->ws_pressures->data;
+    ws->points = cs->ws_points->data;
+    ws->pressures = cs->ws_pressures->data;
 }
 static void
-copy_with_smooth_interpolation(StrokeDebugContext *dbg, CanvasView *view)
+copy_with_smooth_interpolation(CapturedStroke *cs, CanvasView *view)
 {
-    i32 num_points = dbg->points->count;
+    i32 num_points = cs->points->count;
 
     // At most we are adding twice as many points. This is wasteful but at the moment it looks like
     // a reasonable tradeoff vs the complexity/perf hit of using something smaller.
 
     if ( num_points >= 4 && 2*num_points <= STROKE_MAX_POINTS ) {
-        debug_set_ws_point_count(dbg, 2*num_points+2);
+        debug_set_ws_point_count(cs, 2*num_points+2);
 
-        auto ws = dbg->ws;
+        auto ws = cs->ws;
         for(i32 i=0; i<4; i++)
         {
-            ws->points[i] = dbg->points->data[i].point;
-            ws->pressures[i] = dbg->points->data[i].pressure;
+            ws->points[i] = cs->points->data[i].point;
+            ws->pressures[i] = cs->points->data[i].pressure;
         }
 
         i32 out_i = 2;
@@ -441,15 +441,15 @@ copy_with_smooth_interpolation(StrokeDebugContext *dbg, CanvasView *view)
         // Relative to center to maintain precision.
         v2l canvas_center = raster_to_canvas(view, VEC2L(view->screen_size/2));
         v2f a = {}; // Will get copied from b in the loop below.
-        v2f b = v2l_to_v2f(dbg->points->data[0].point - canvas_center);
-        v2f c = v2l_to_v2f(dbg->points->data[1].point - canvas_center);
-        v2f d = v2l_to_v2f(dbg->points->data[2].point - canvas_center);
+        v2f b = v2l_to_v2f(cs->points->data[0].point - canvas_center);
+        v2f c = v2l_to_v2f(cs->points->data[1].point - canvas_center);
+        v2f d = v2l_to_v2f(cs->points->data[2].point - canvas_center);
 
         for ( i32 i = 3; i < num_points; ++i ) {
             a = b;
             b = c;
             c = d;
-            d = v2l_to_v2f(dbg->points->data[i].point - canvas_center);
+            d = v2l_to_v2f(cs->points->data[i].point - canvas_center);
 
             if ( out_i >= (2*num_points)-1 ) {
                 break;  // Keep the stroke from becoming larger than we support.
@@ -479,20 +479,20 @@ copy_with_smooth_interpolation(StrokeDebugContext *dbg, CanvasView *view)
                 n = n + p2 * 0.375f;
                 n = n + p3 * 0.125f;
 
-                ws->pressures[out_i] = dbg->points->data[i - 2].pressure;
+                ws->pressures[out_i] = cs->points->data[i - 2].pressure;
                 ws->points[out_i++] = v2f_to_v2l(b) + canvas_center;
 
                 ws->pressures[out_i] = ws->pressures[out_i-1]; // Use the same pressure value as last point.
                 ws->points[out_i++] = v2f_to_v2l(n) + canvas_center;
             } else {
-                ws->points[out_i] = dbg->points->data[i-2].point;
-                ws->pressures[out_i++] = dbg->points->data[i-2].pressure;
+                ws->points[out_i] = cs->points->data[i-2].point;
+                ws->pressures[out_i++] = cs->points->data[i-2].pressure;
             }
 
             // Always add the last point.
             if ( i == num_points - 1 ) {
-                ws->pressures[out_i] = dbg->points->data[i].pressure;
-                ws->points[out_i++] = dbg->points->data[i].point;
+                ws->pressures[out_i] = cs->points->data[i].pressure;
+                ws->points[out_i++] = cs->points->data[i].point;
             }
         }
 
@@ -500,15 +500,61 @@ copy_with_smooth_interpolation(StrokeDebugContext *dbg, CanvasView *view)
     }
     // Four or less points in stroke, or stroke is too large.
     else {
-        debug_set_ws_point_count(dbg, num_points);
+        debug_set_ws_point_count(cs, num_points);
 
-        auto ws = dbg->ws;
+        auto ws = cs->ws;
         for(i32 i=0; i<num_points; i++)
         {
-            ws->points[i] = dbg->points->data[i].point;
-            ws->pressures[i] = dbg->points->data[i].pressure;
+            ws->points[i] = cs->points->data[i].point;
+            ws->pressures[i] = cs->points->data[i].pressure;
         }
         ws->num_points = num_points;
+    }
+}
+void do_catmull_rom_spline(CanvasView * view, CapturedStroke *cs, i32 idx, int steps, DArray<v2l> *points, DArray<f32> *pressures)
+{
+    v2l canvas_center = raster_to_canvas(view, VEC2L(view->screen_size/2));
+
+    v2f first_point;
+    {
+        auto p0 = v2l_to_v2f(cs->points->data[2].point - canvas_center);
+        auto p1 = v2l_to_v2f(cs->points->data[1].point - canvas_center);
+        auto p2 = v2l_to_v2f(cs->points->data[0].point - canvas_center);
+        auto d1 = p1-p0;
+        auto d2 = p2-p1;
+        first_point = p2 + rotate_v2f(d2, atan2(DET(d1, d2), DOT(d1, d2)));
+    }
+    v2f last_point;
+    {
+        auto p0 = v2l_to_v2f(cs->points->data[cs->points->count-3].point - canvas_center);
+        auto p1 = v2l_to_v2f(cs->points->data[cs->points->count-2].point - canvas_center);
+        auto p2 = v2l_to_v2f(cs->points->data[cs->points->count-1].point - canvas_center);
+        auto d1 = p1-p0;
+        auto d2 = p2-p1;
+        last_point = p2 + rotate_v2f(d2, atan2(DET(d1, d2), DOT(d1, d2)));
+    }
+
+    auto p0 = idx > 1 ? v2l_to_v2f(cs->points->data[idx-2].point - canvas_center) : first_point;
+    auto p1 = v2l_to_v2f(cs->points->data[idx-1].point - canvas_center);
+    auto p2 = v2l_to_v2f(cs->points->data[idx  ].point - canvas_center);
+    auto p3 = idx+1 < cs->points->count ? v2l_to_v2f(cs->points->data[idx+1].point - canvas_center) : last_point;
+
+    if(steps < 1) steps = 1;
+    f32 step_size = 1.0f / steps;
+    
+    for(i32 step_idx=1; step_idx<=steps; step_idx++)
+    {
+        f32 t = step_idx * step_size;
+        f32 t2 = t*t;
+        f32 t3 = t2*t;
+        auto p = 0.5f * (
+            (2.0f * p1) +
+            t * (-1.0f*p0 + p2) +
+            t2 * (2.0f*p0 - 5.0f*p1 + 4.0f*p2 - p3) +
+            t3 * (-1.0f*p0 + 3.0f*p1 - 3.0f*p2 + p3)
+        );
+        push(points, v2f_to_v2l(p) + canvas_center);
+        push(pressures, lerp(cs->points->data[idx-1].pressure, cs->points->data[idx].pressure, t));
     }
 }
 
@@ -516,11 +562,12 @@ void debug_init(Milton *milton)
 {
     auto dbg = milton->debug;
     dbg->visible = true;
+    dbg->catmul_min_length = 8;
 }
-void debug_update_stroke(Milton *milton)
+void debug_update_stroke(CapturedStroke *cs, Milton *milton)
 {
     auto dbg = milton->debug;
-    auto ws = milton->debug->ws;
+    auto ws = cs->ws;
 
     ws->brush = milton_get_brush(milton);
     ws->layer_id = milton->view->working_layer_id;
@@ -531,42 +578,115 @@ void debug_update_stroke(Milton *milton)
 
     if(dbg->smooth_algorithm == SmoothAlgorithm_Raw)
     {
-        debug_set_ws_point_count(dbg, dbg->points->count);
-        ws->num_points = dbg->points->count;
+        debug_set_ws_point_count(cs, cs->points->count);
+        ws->num_points = cs->points->count;
 
         for(int i=0; i<ws->num_points; i++)
         {
-            ws->points[i] = dbg->points->data[i].point;
-            ws->pressures[i] = dbg->points->data[i].pressure;
+            ws->points[i] = cs->points->data[i].point;
+            ws->pressures[i] = cs->points->data[i].pressure;
         }
     }
     else if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints)
     {
-        debug_set_ws_point_count(dbg, dbg->points->count);
-        ws->num_points = dbg->points->count;
+        debug_set_ws_point_count(cs, cs->points->count);
+        ws->num_points = cs->points->count;
 
         if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints && ws->num_points)
         {
-            clear_smooth_filter(dbg->smooth_filter, dbg->points->data[0].point);
+            clear_smooth_filter(dbg->smooth_filter, cs->points->data[0].point);
         }
 
         for(int i=0; i<ws->num_points; i++)
         {
-            auto point = dbg->points->data[i].point;
+            auto point = cs->points->data[i].point;
             if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints)
             {
                 point = smooth_filter(dbg->smooth_filter, point);
             }
             ws->points[i] = point;
-            ws->pressures[i] = dbg->points->data[i].pressure;
+            ws->pressures[i] = cs->points->data[i].pressure;
         }
     }
     else if(dbg->smooth_algorithm == SmoothAlgorithm_OldMiltonCubic)
     {
-        copy_with_smooth_interpolation(dbg, milton->view);
+        copy_with_smooth_interpolation(cs, milton->view);
     }
+    else if(dbg->smooth_algorithm == SmoothAlgorithm_CatmullRomSpline)
+    {
+        if(cs->points->count >= 3)
+        {
+            // NOTE(ameen): Make initial room in the buffers and initialize ws
+            cs->ws_points->count = 0;
+            cs->ws_pressures->count = 0;
 
-    dbg->full_render = true;
+            push(cs->ws_points, cs->points->data[0].point);
+            push(cs->ws_pressures, cs->points->data[0].pressure);
+
+            for(i32 idx = 1; idx < cs->points->count; idx++)
+            {
+                do_catmull_rom_spline(milton->view, cs, idx, 10, cs->ws_points, cs->ws_pressures);
+            }
+            mlt_assert(cs->ws_points->count == cs->ws_pressures->count);
+            ws->num_points = cs->ws_points->count;
+            debug_set_ws_point_count(cs, ws->num_points);
+        }
+        else
+        {
+            debug_set_ws_point_count(cs, cs->points->count);
+            ws->num_points = cs->points->count;
+
+            for(int i=0; i<ws->num_points; i++)
+            {
+                ws->points[i] = cs->points->data[i].point;
+                ws->pressures[i] = cs->points->data[i].pressure;
+            }
+        }
+    }
+    else if(dbg->smooth_algorithm == SmoothAlgorithm_DynamicCatmullRomSpline)
+    {
+        if(cs->points->count >= 3)
+        {
+            // NOTE(ameen): Make initial room in the buffers and initialize ws
+            cs->ws_points->count = 0;
+            cs->ws_pressures->count = 0;
+
+            push(cs->ws_points, cs->points->data[0].point);
+            push(cs->ws_pressures, cs->points->data[0].pressure);
+
+            for(i32 idx = 1; idx < cs->points->count; idx++)
+            {
+                auto p0 = cs->points->data[idx-1].point;
+                auto p1 = cs->points->data[idx  ].point;
+                auto d = (1.0f/milton->view->scale) * v2l_to_v2f(p1-p0);
+                auto len = magnitude(d);
+                if(len > dbg->catmul_min_length)
+                {
+                    auto steps = floor(len / (f32)dbg->catmul_min_length) + 1;
+                    do_catmull_rom_spline(milton->view, cs, idx, steps, cs->ws_points, cs->ws_pressures);
+                }
+                else
+                {
+                    push(cs->ws_points, cs->points->data[idx].point);
+                    push(cs->ws_pressures, cs->points->data[idx].pressure);
+                }
+            }
+            mlt_assert(cs->ws_points->count == cs->ws_pressures->count);
+            ws->num_points = cs->ws_points->count;
+            debug_set_ws_point_count(cs, ws->num_points);
+        }
+        else
+        {
+            debug_set_ws_point_count(cs, cs->points->count);
+            ws->num_points = cs->points->count;
+
+            for(int i=0; i<ws->num_points; i++)
+            {
+                ws->points[i] = cs->points->data[i].point;
+                ws->pressures[i] = cs->points->data[i].pressure;
+            }
+        }
+    }
 }
 f32 get_pressure(MiltonInput *input, int input_i)
 {
@@ -580,23 +700,61 @@ f32 get_pressure(MiltonInput *input, int input_i)
     return pressure;
 }
 static void 
-debug_stroke_input(Milton *milton, MiltonInput *input)
+debug_stroke_input(Milton *milton, MiltonInput *input, b32 end_stroke)
 {
     if ( !milton->debug->is_capturing ) return ;
-    if ( input->input_count == 0 ) return ;
+    if ( input->input_count != 0 )
+    {
+        if(!milton->debug->current_stroke)
+        {
+            milton->debug->current_stroke = add(milton->debug->strokes);
+            *milton->debug->current_stroke = {};
+        }
+        auto cs = milton->debug->current_stroke;
+        cs->radius = milton_get_brush_radius(milton);
+        cs->update_stroke = true;
+        for ( int input_i = 0; input_i < input->input_count; ++input_i ) {
 
-    milton->debug->update_stroke = true;
-    for ( int input_i = 0; input_i < input->input_count; ++input_i ) {
+            v2l in_point = input->points[input_i];
+            v2l canvas_point = raster_to_canvas(milton->view, in_point);
+            f32 pressure = get_pressure(input, input_i);
 
-        v2l in_point = input->points[input_i];
-        v2l canvas_point = raster_to_canvas(milton->view, in_point);
-        f32 pressure = get_pressure(input, input_i);
-
-        auto p = add(milton->debug->points);
-        p->point = canvas_point;
-        p->pressure = pressure;
+            if(milton->debug->is_point_mode)
+            {
+                if(cs->points->count == 0 || milton->debug->need_new_point)
+                {
+                    add(cs->points);
+                    milton->debug->need_new_point = false;
+                }
+                cs->points->data[cs->points->count-1].point = canvas_point;
+                cs->points->data[cs->points->count-1].pressure = pressure;
+            }
+            else
+            {
+                auto p = add(cs->points);
+                p->point = canvas_point;
+                p->pressure = pressure;
+            }
+        }
     }
-
+    if(end_stroke)
+    {
+        if(milton->debug->is_point_mode)
+        {
+            milton->debug->need_new_point = true;
+        }
+        else
+        {
+            if(milton->debug->current_stroke)
+            {
+                if(milton->debug->current_stroke->points->count == 0)
+                {
+                    pop(milton->debug->strokes);
+                }
+                milton->debug->current_stroke = NULL;
+            }
+        }
+    }
 }
 
 static void
@@ -1552,7 +1710,7 @@ milton_update_and_render(Milton* milton, MiltonInput* input)
                     milton_grid_input(milton, input, end_stroke);
                 }
                 else {  // Input for eraser and pen
-                    debug_stroke_input(milton, input);
+                    debug_stroke_input(milton, input, end_stroke);
                     Stroke* ws = &milton->working_stroke;
                     auto prev_num_points = ws->num_points;
                     if(!milton->debug->is_capturing)
@@ -1568,10 +1726,15 @@ milton_update_and_render(Milton* milton, MiltonInput* input)
         }
     }
 
-    if(milton->debug->update_stroke)
+    for(i32 i=0; i<milton->debug->strokes->count; i++)
     {
-        debug_update_stroke(milton);
-        milton->debug->update_stroke = false;
+        auto cs = milton->debug->strokes->data + i;
+        if(cs->update_stroke)
+        {
+            debug_update_stroke(cs, milton);
+            cs->update_stroke = false;
+            milton->debug->full_render = true;
+        }
     }
     if(milton->debug->full_render)
     {
@@ -1733,45 +1896,45 @@ milton_update_and_render(Milton* milton, MiltonInput* input)
                     gpu_update_picker(milton->renderer, &milton->gui->picker);
                 }
                 // Copy current stroke.
-                // Stroke new_stroke = {};
-                // CanvasState* canvas = milton->canvas;
-                // copy_stroke(&canvas->arena, milton->view, &milton->working_stroke, &new_stroke);
-                // {
-                //     new_stroke.brush = milton->working_stroke.brush;
-                //     new_stroke.layer_id = milton->view->working_layer_id;
-                //     new_stroke.bounding_rect = rect_union(bounding_box_for_stroke(&new_stroke),
-                //                                         bounding_box_for_stroke(&new_stroke));
+                Stroke new_stroke = {};
+                CanvasState* canvas = milton->canvas;
+                copy_stroke(&canvas->arena, milton->view, &milton->working_stroke, &new_stroke);
+                {
+                    new_stroke.brush = milton->working_stroke.brush;
+                    new_stroke.layer_id = milton->view->working_layer_id;
+                    new_stroke.bounding_rect = rect_union(bounding_box_for_stroke(&new_stroke),
+                                                        bounding_box_for_stroke(&new_stroke));
 
-                //     new_stroke.id = milton->canvas->stroke_id_count++;
+                    new_stroke.id = milton->canvas->stroke_id_count++;
 
-                //     draw_custom_rectangle = true;
-                //     Rect bounds = new_stroke.bounding_rect;
-                //     bounds.top_left = canvas_to_raster(milton->view, bounds.top_left);
-                //     bounds.bot_right = canvas_to_raster(milton->view, bounds.bot_right);
-                //     custom_rectangle = rect_union(custom_rectangle, bounds);
-                // }
+                    draw_custom_rectangle = true;
+                    Rect bounds = new_stroke.bounding_rect;
+                    bounds.top_left = canvas_to_raster(milton->view, bounds.top_left);
+                    bounds.bot_right = canvas_to_raster(milton->view, bounds.bot_right);
+                    custom_rectangle = rect_union(custom_rectangle, bounds);
+                }
 
-                // mlt_assert(new_stroke.num_points > 0);
-                // mlt_assert(new_stroke.num_points <= STROKE_MAX_POINTS);
-                // auto* stroke = layer::layer_push_stroke(milton->canvas->working_layer, new_stroke);
+                mlt_assert(new_stroke.num_points > 0);
+                mlt_assert(new_stroke.num_points <= STROKE_MAX_POINTS);
+                auto* stroke = layer::layer_push_stroke(milton->canvas->working_layer, new_stroke);
 
-                // // Invalidate working stroke render element
+                // Invalidate working stroke render element
 
-                // HistoryElement h = { HistoryElement_STROKE_ADD, milton->canvas->working_layer->id };
-                // push(&milton->canvas->history, h);
+                HistoryElement h = { HistoryElement_STROKE_ADD, milton->canvas->working_layer->id };
+                push(&milton->canvas->history, h);
 
-                // reset_working_stroke(milton);
+                reset_working_stroke(milton);
 
-                // clear_stroke_redo(milton);
+                clear_stroke_redo(milton);
 
-                // // Make sure we show blurred layers when finishing a stroke.
-                // render_flags |= RenderBackendFlags_WITH_BLUR;
-                // milton->render_settings.do_full_redraw = true;
+                // Make sure we show blurred layers when finishing a stroke.
+                render_flags |= RenderBackendFlags_WITH_BLUR;
+                milton->render_settings.do_full_redraw = true;
 
-                // // Update save block
-                // SaveBlockHeader header = {};
-                // header.type = Block_LAYER_CONTENT;
-                // header.block_layer.id = milton->view->working_layer_id;
+                // Update save block
+                SaveBlockHeader header = {};
+                header.type = Block_LAYER_CONTENT;
+                header.block_layer.id = milton->view->working_layer_id;
             }
         }
     }

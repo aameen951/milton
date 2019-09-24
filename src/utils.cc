@@ -151,6 +151,15 @@ rotate_v2i(v2i p, f32 angle)
     };
     return r;
 }
+v2f
+rotate_v2f(v2f p, f32 angle)
+{
+    v2f r = {
+        ((p.x * cosf(angle)) - (p.y * sinf(angle))),
+        ((p.x * sinf(angle)) + (p.y * cosf(angle))),
+    };
+    return r;
+}
 
 v2f
 closest_point_in_segment_f(i32 ax, i32 ay,

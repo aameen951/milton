@@ -24,7 +24,12 @@ enum ImmediateFlag
 {
     ImmediateFlag_RECT = (1<<0),
 };
-
+struct DebugMark
+{
+    v2f pos;
+    v4f color;
+    v2f center;
+};
 struct RenderBackend
 {
     f32 viewport_limits[2];  // OpenGL limits to the framebuffer size.
@@ -46,6 +51,7 @@ struct RenderBackend
     GLuint blur_program;
 #if MILTON_DEBUG
     GLuint simple_program;
+    GLuint debug_mark_program;
 #endif
 
     // VBO for the screen-covering quad.
@@ -58,6 +64,9 @@ struct RenderBackend
     // Handles for brush outline.
     GLuint vbo_outline;
     GLuint vbo_outline_sizes;
+
+    // Handles for debug marks.
+    GLuint vbo_debug_mark;
 
     // Handles for exporter rectangle.
     GLuint vbo_exporter;
@@ -90,6 +99,8 @@ struct RenderBackend
     // Cached values for stroke rendering uniforms.
     v4f current_color;
     float current_radius;
+
+    DArray<DebugMark> debug_marks;
 
 #if MILTON_ENABLE_PROFILING
     u64 clipped_count;
@@ -181,6 +192,38 @@ print_framebuffer_status()
     }
 }
 
+void 
+gpu_add_debug_mark(RenderBackend* r, v2i pos, i32 radius, v4f color)
+{
+    auto w = r->width;
+    auto h = r->height;
+    
+    auto m0 = add(&r->debug_marks);
+    auto m1 = add(&r->debug_marks);
+    auto m2 = add(&r->debug_marks);
+    auto m3 = add(&r->debug_marks);
+    auto m4 = add(&r->debug_marks);
+    auto m5 = add(&r->debug_marks);
+
+    m0->pos = {2*((f32)(pos.x - radius) / w)-1,  -2*((f32)(pos.y-radius) / h)+1};
+    m0->color = color;
+    m0->center = {-1, -1};
+    m1->pos = {2*((f32)(pos.x - radius) / w)-1,  -2*((f32)(pos.y+radius) / h)+1};
+    m1->color = color;
+    m1->center = {-1, +1};
+    m2->pos = {2*((f32)(pos.x + radius) / w)-1,  -2*((f32)(pos.y+radius) / h)+1};
+    m2->color = color;
+    m2->center = {+1, +1};
+    m3->pos = {2*((f32)(pos.x - radius) / w)-1,  -2*((f32)(pos.y-radius) / h)+1};
+    m3->color = color;
+    m3->center = {-1, -1};
+    m4->pos = {2*((f32)(pos.x + radius) / w)-1,  -2*((f32)(pos.y+radius) / h)+1};
+    m4->color = color;
+    m4->center = {+1, +1};
+    m5->pos = {2*((f32)(pos.x + radius) / w)-1,  -2*((f32)(pos.y-radius) / h)+1};
+    m5->color = color;
+    m5->center = {+1, -1};
+}
 RenderBackend*
 gpu_allocate_render_backend(Arena* arena)
 {
@@ -509,6 +552,14 @@ gpu_init(RenderBackend* r, CanvasView* view, ColorPicker* picker)
         objs[1] = gl::compile_shader(g_outline_f, GL_FRAGMENT_SHADER);
 
         gl::link_program(r->outline_program, objs, array_count(objs));
+    }
+    {  // Debug mark program
+        r->debug_mark_program = glCreateProgram();
+        GLuint objs[2] = {};
+        objs[0] = gl::compile_shader(g_debug_mark_v, GL_VERTEX_SHADER);
+        objs[1] = gl::compile_shader(g_debug_mark_f, GL_FRAGMENT_SHADER);
+
+        gl::link_program(r->debug_mark_program, objs, array_count(objs));
     }
     {  // Exporter program
         r->exporter_program = glCreateProgram();
@@ -1244,11 +1295,36 @@ gpu_clip_strokes_and_update(Arena* arena,
             }
         }
 
+        if(debug->mark_points && !r->vbo_debug_mark)
+        {
+            glGenBuffers(1, &r->vbo_debug_mark);
+        }
         if(debug->visible) {
-            if ( debug->ws->layer_id == l->id ) {
-                gpu_cook_stroke(arena, r, debug->ws, CookStroke_UPDATE_WORKING_STROKE);
-                push(clip_array, debug->ws->render_element);
+            r->debug_marks.count = 0;
+            for(i32 i=0; i<debug->strokes->count; i++)
+            {
+                auto stroke = debug->strokes->data + i;
+                auto ws = stroke->ws;
+                if ( ws->layer_id == l->id ) {
+                    gpu_cook_stroke(arena, r, ws, CookStroke_UPDATE_WORKING_STROKE);
+                    push(clip_array, ws->render_element);
+                    if(debug->mark_points)
+                    {
+                        for(i32 j=0; j<ws->num_points; j++)
+                        {
+                            auto radius = stroke->radius;
+                            auto point = VEC2I(canvas_to_raster(view, ws->points[j]));
+                            gpu_add_debug_mark(r, point, radius, {1.0f,0.0f,0.0f,1.0f});
+                        }
+                    }
+                }
             }
+        }
+        if(debug->mark_points)
+        {
+            glBindBuffer(GL_ARRAY_BUFFER, r->vbo_debug_mark);
+            DEBUG_gl_mark_buffer(r->vbo_debug_mark);
+            glBufferData(GL_ARRAY_BUFFER, r->debug_marks.count*sizeof(*r->debug_marks.data), r->debug_marks.data, GL_DYNAMIC_DRAW);
         }
 
         auto* p = push(clip_array, layer_element);
@@ -1670,6 +1746,36 @@ gpu_render(RenderBackend* r,  i32 view_x, i32 view_y, i32 view_width, i32 view_h
         }
         glDrawArrays(GL_TRIANGLE_FAN, 0,4);
     }
+    POP_GRAPHICS_GROUP();  // outlines
+
+
+    PUSH_GRAPHICS_GROUP("debug_marks");
+    // Debug marks
+    if(r->debug_marks.count)
+    {
+        glUseProgram(r->debug_mark_program);
+        GLint pos_loc = glGetAttribLocation(r->debug_mark_program, "a_position");
+        GLint color_loc = glGetAttribLocation(r->debug_mark_program, "a_color");
+        GLint center_loc = glGetAttribLocation(r->debug_mark_program, "a_center");
+        DEBUG_gl_validate_buffer(r->vbo_debug_mark);
+        glBindBuffer(GL_ARRAY_BUFFER, r->vbo_debug_mark);
+        mlt_assert(sizeof(DebugMark) == sizeof(v2f) + sizeof(v4f) + sizeof(v2f));
+        glVertexAttribPointer(/*attrib location*/(GLuint)pos_loc,
+                                /*size*/2, GL_FLOAT, /*normalize*/GL_FALSE,
+                                /*stride*/sizeof(DebugMark), /*ptr*/(void *)offsetof(DebugMark, pos));
+        glVertexAttribPointer(/*attrib location*/(GLuint)color_loc,
+                                /*size*/4, GL_FLOAT, /*normalize*/GL_FALSE,
+                                /*stride*/sizeof(DebugMark), /*ptr*/(void *)offsetof(DebugMark, color));
+        glVertexAttribPointer(/*attrib location*/(GLuint)center_loc,
+                                /*size*/2, GL_FLOAT, /*normalize*/GL_FALSE,
+                                /*stride*/sizeof(DebugMark), /*ptr*/(void *)offsetof(DebugMark, center));
+        glEnableVertexAttribArray((GLuint)pos_loc);
+        glEnableVertexAttribArray((GLuint)color_loc);
+        glEnableVertexAttribArray((GLuint)center_loc);
+
+        glDrawArrays(GL_TRIANGLES, 0,r->debug_marks.count);
+    }
+    POP_GRAPHICS_GROUP();  // outlines
     glDisable(GL_BLEND);
 
     // Exporter rect
@@ -1687,7 +1793,6 @@ gpu_render(RenderBackend* r,  i32 view_x, i32 view_y, i32 view_width, i32 view_h
             glDrawElements(GL_TRIANGLES, r->exporter_indices_count, GL_UNSIGNED_SHORT, 0);
         }
     }
-    POP_GRAPHICS_GROUP();  // outlines
 
     glUseProgram(0);
     POP_GRAPHICS_GROUP(); // gpu_render

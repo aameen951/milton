@@ -107,6 +107,7 @@ struct MiltonGui
     b32 did_hit_button;  // Avoid multiple clicks.
 
     int flags;  // MiltonGuiFlags
+    f32 y;
 
     i32 history;
 

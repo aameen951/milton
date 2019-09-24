@@ -15,8 +15,20 @@
 #define NUM_BUTTONS 5
 #define BOUNDS_RADIUS_PX 80
 
+bool ImGui_Begin(MiltonGui* gui, char *text, f32 width, f32 height, int BeginFlags)
+{
+    f32 s = gui->scale;
+    f32 pre_gap = 10.0f;
+    gui->y += pre_gap;
+    ImGui::SetNextWindowPos(ImVec2(s * 10, s * gui->y));
+    ImGui::SetNextWindowSize({s * width, s * height}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
+    bool is_open = ImGui::Begin(text, NULL, BeginFlags);
+    gui->y += ImGui::GetWindowSize().y / s;
+    return is_open;
+}
+
 void
-gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f32 *y)
+gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton)
 {
     float ui_scale = milton->gui->scale;
     MiltonGui* gui = milton->gui;
@@ -24,12 +36,7 @@ gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
     CanvasState* canvas = milton->canvas;
 
     // Layer window
-    *y += ui_scale * 20;
-    ImGui::SetNextWindowPos(ImVec2(ui_scale*10, *y), ImGuiSetCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(ui_scale*300, ui_scale*220), ImGuiSetCond_FirstUseEver);
-    *y += ui_scale * 220;
-
-    if ( ImGui::Begin(loc(TXT_layers)) ) {
+    if ( ImGui_Begin(milton->gui, loc(TXT_layers), 300, 120, 0) ) {
         CanvasView* view = milton->view;
         // left
         ImGui::BeginChild("left pane", ImVec2(150, 0), true);
@@ -264,22 +271,14 @@ gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
     } ImGui::End();
 }
 
-
 void
-gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milton, float *y)
+gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milton)
 {
-    const f32 ui_scale = milton->gui->scale;
-
-    *y += ui_scale * 10;
-    ImGui::SetNextWindowPos(ImVec2(ui_scale * 10, *y), ImGuiSetCond_FirstUseEver);
-    ImGui::SetNextWindowSize({ui_scale * 300, ui_scale * 200}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
-    *y += ui_scale * 200;
-
     MiltonGui* gui = milton->gui;
 
     auto dbg = milton->debug;
 
-    if ( ImGui::Begin("Debug Stroke Smoothness", NULL) ) {
+    if ( ImGui_Begin(milton->gui, "Debug Stroke Smoothness", 300, 240, 0) ) {
 
         if(!dbg->is_capturing)
         {
@@ -293,16 +292,42 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
                 dbg->is_capturing = false;
             }
         }
-        if(dbg->points->count)
+        if(dbg->strokes->count)
         {
             if ( ImGui::Button("Clear") ) {
-                reset(dbg->points);
-                dbg->update_stroke = true;
+                // TODO(ameen): Memory leak!
+                reset(dbg->strokes);
+                dbg->current_stroke = NULL;
                 dbg->full_render = true;
             }
         }
         if ( ImGui::Checkbox("Visible", &dbg->visible) ) {
             dbg->full_render = true;
+        }
+        if ( ImGui::Checkbox("Mark Points", &dbg->mark_points) ) {
+            dbg->full_render = true;
+        }
+        if ( ImGui::Checkbox("Point Mode", &dbg->is_point_mode) ) {
+        }
+
+        if(dbg->is_point_mode)
+        {
+            if(milton->debug->current_stroke)
+            {
+                if ( ImGui::Button("Delete Last Point") )
+                {
+                    if(milton->debug->current_stroke->points->count)
+                    {
+                        pop(milton->debug->current_stroke->points);
+                        milton->debug->current_stroke->update_stroke = true;
+                        dbg->full_render = true;
+                    }
+                }
+            }
+            if ( ImGui::Button("New Stroke") )
+            {
+                milton->debug->current_stroke = NULL;
+            }
         }
 
         ImGui::Text("Smooth Algorithm:");
@@ -311,34 +336,42 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
             toggle = ImGui::RadioButton("Raw",                   (int *)&dbg->smooth_algorithm, SmoothAlgorithm_Raw) || toggle;
             toggle = ImGui::RadioButton("Average Last N Points", (int *)&dbg->smooth_algorithm, SmoothAlgorithm_AverageLastNPoints) || toggle;
             toggle = ImGui::RadioButton("Old Milton Cubic",      (int *)&dbg->smooth_algorithm, SmoothAlgorithm_OldMiltonCubic) || toggle;
+            toggle = ImGui::RadioButton("Catmull-Rom Spline",    (int *)&dbg->smooth_algorithm, SmoothAlgorithm_CatmullRomSpline) || toggle;
+            toggle = ImGui::RadioButton("Dynamic Catmull-Rom Spline",    (int *)&dbg->smooth_algorithm, SmoothAlgorithm_DynamicCatmullRomSpline) || toggle;
 
+            if(dbg->smooth_algorithm == SmoothAlgorithm_DynamicCatmullRomSpline)
+            {
+                toggle = ImGui::SliderInt("Apply if longer (px)", &dbg->catmul_min_length, 1, 200) || toggle;
+            }
             if ( toggle ) {
-                dbg->update_stroke = true;
+                for(i32 i=0; i<dbg->strokes->count; i++)
+                    (*dbg->strokes)[i].update_stroke = true;
                 dbg->full_render = true;
             }
         }
     }
-    ImGui::End();  // Brushes
+    ImGui::End();
+
+    if ( ImGui_Begin(milton->gui, "Debug Strokes", 300, 300, 0) ) {
+        for(i32 i=0; i<dbg->strokes->count; i++)
+        {
+            auto cs = dbg->strokes->data + i;
+            ImGui::Text("[%d]: %d pts (x%.1f)", i, cs->ws->num_points, (f32)cs->ws->num_points/cs->points->count);
+        }
+    }
+    ImGui::End();
 }
 
 void
-gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, float *y)
+gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton)
 {
-    const f32 ui_scale = milton->gui->scale;
-    const f32 brush_window_height = ui_scale * 250;
-
-    *y += ui_scale * 10;
-    ImGui::SetNextWindowPos(ImVec2(ui_scale * 10, *y), ImGuiSetCond_FirstUseEver);
-    ImGui::SetNextWindowSize({ui_scale * 300, brush_window_height}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
-    *y += brush_window_height;
-
     b32 show_brush_window = (current_mode_is_for_drawing(milton));
     auto default_imgui_window_flags = ImGuiWindowFlags_NoCollapse;
     MiltonGui* gui = milton->gui;
 
     // Brush Window
     if ( show_brush_window ) {
-        if ( ImGui::Begin(loc(TXT_brushes), NULL, default_imgui_window_flags) ) {
+        if ( ImGui_Begin(milton->gui, loc(TXT_brushes), 300, 160, default_imgui_window_flags) ) {
             if ( milton->current_mode == MiltonMode::PEN ||
                  milton->current_mode == MiltonMode::GRID ||
                  milton->current_mode == MiltonMode::PRIMITIVE ) {
@@ -759,13 +792,13 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
         /* ImGuiSetCond_FirstUseEver */
 
 
-        float y = (float)pbounds.bottom;
+        milton->gui->y = (float)pbounds.bottom;
 
-        gui_brush_window(input, platform, milton, &y);
+        gui_brush_window(input, platform, milton);
 
-        gui_layer_window(input, platform, milton, &y);
+        gui_layer_window(input, platform, milton);
 
-        gui_stoke_debug_window(input, platform, milton, &y);
+        gui_stoke_debug_window(input, platform, milton);
 
         // Settings window
         if ( show_settings ) {
