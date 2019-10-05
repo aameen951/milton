@@ -162,13 +162,20 @@ enum SmoothAlgorithm
 {
     SmoothAlgorithm_Raw,
     SmoothAlgorithm_AverageLastNPoints,
+    SmoothAlgorithm_AverageNeighborNPoints,
     SmoothAlgorithm_OldMiltonCubic,
     SmoothAlgorithm_CatmullRomSpline,
     SmoothAlgorithm_DynamicCatmullRomSpline,
+    SmoothAlgorithm_DynamicCubicHermite,
+    SmoothAlgorithm_SarahFriskenAlg,
 };
 struct RenderSettings
 {
     b32 do_full_redraw;
+};
+struct SarahFriskenState
+{
+
 };
 struct PointPressure
 {
@@ -178,24 +185,30 @@ struct PointPressure
 struct CapturedStroke
 {
     DArray<PointPressure> points[1];
-    i32 radius;
+    i32 _radius;
     b32 update_stroke;
     Stroke ws[1];
     DArray<v2l> ws_points[1];
     DArray<f32> ws_pressures[1];
+    i32 scale;
+    Brush brush;
+    Stroke ows[1];
+    DArray<v2l> ows_points[1];
+    DArray<f32> ows_pressures[1];
 };
 struct StrokeDebugContext
 {
     b32 is_capturing;
 
     bool visible;
-
+    bool show_raw;
     bool mark_points;
     bool is_point_mode;
     bool need_new_point;
     SmoothAlgorithm smooth_algorithm;
     int catmul_min_length;
     SmoothFilter smooth_filter[1];
+    SarahFriskenState sarah_frisken[1];
 
     b32 full_render;
     b32 custom_render;

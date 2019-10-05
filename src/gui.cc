@@ -36,6 +36,7 @@ gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton)
     CanvasState* canvas = milton->canvas;
 
     // Layer window
+    ImGui::SetNextWindowCollapsed(true, ImGuiSetCond_FirstUseEver);
     if ( ImGui_Begin(milton->gui, loc(TXT_layers), 300, 120, 0) ) {
         CanvasView* view = milton->view;
         // left
@@ -304,6 +305,9 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
         if ( ImGui::Checkbox("Visible", &dbg->visible) ) {
             dbg->full_render = true;
         }
+        if ( ImGui::Checkbox("Show Raw", &dbg->show_raw) ) {
+            dbg->full_render = true;
+        }
         if ( ImGui::Checkbox("Mark Points", &dbg->mark_points) ) {
             dbg->full_render = true;
         }
@@ -335,11 +339,15 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
             bool toggle = false;
             toggle = ImGui::RadioButton("Raw",                   (int *)&dbg->smooth_algorithm, SmoothAlgorithm_Raw) || toggle;
             toggle = ImGui::RadioButton("Average Last N Points", (int *)&dbg->smooth_algorithm, SmoothAlgorithm_AverageLastNPoints) || toggle;
+            toggle = ImGui::RadioButton("Average Neighbor N Points", (int *)&dbg->smooth_algorithm, SmoothAlgorithm_AverageNeighborNPoints) || toggle;
             toggle = ImGui::RadioButton("Old Milton Cubic",      (int *)&dbg->smooth_algorithm, SmoothAlgorithm_OldMiltonCubic) || toggle;
-            toggle = ImGui::RadioButton("Catmull-Rom Spline",    (int *)&dbg->smooth_algorithm, SmoothAlgorithm_CatmullRomSpline) || toggle;
+            // toggle = ImGui::RadioButton("Catmull-Rom Spline",    (int *)&dbg->smooth_algorithm, SmoothAlgorithm_CatmullRomSpline) || toggle;
             toggle = ImGui::RadioButton("Dynamic Catmull-Rom Spline",    (int *)&dbg->smooth_algorithm, SmoothAlgorithm_DynamicCatmullRomSpline) || toggle;
+            toggle = ImGui::RadioButton("Dynamic Cubic Hermite Spline",    (int *)&dbg->smooth_algorithm, SmoothAlgorithm_DynamicCubicHermite) || toggle;
+            toggle = ImGui::RadioButton("Sarah Frisken Algorithm",    (int *)&dbg->smooth_algorithm, SmoothAlgorithm_SarahFriskenAlg) || toggle;
 
-            if(dbg->smooth_algorithm == SmoothAlgorithm_DynamicCatmullRomSpline)
+            if(dbg->smooth_algorithm == SmoothAlgorithm_DynamicCatmullRomSpline ||
+                dbg->smooth_algorithm == SmoothAlgorithm_DynamicCubicHermite)
             {
                 toggle = ImGui::SliderInt("Apply if longer (px)", &dbg->catmul_min_length, 1, 200) || toggle;
             }
@@ -366,11 +374,12 @@ void
 gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton)
 {
     b32 show_brush_window = (current_mode_is_for_drawing(milton));
-    auto default_imgui_window_flags = ImGuiWindowFlags_NoCollapse;
+    auto default_imgui_window_flags = 0;//ImGuiWindowFlags_NoCollapse;
     MiltonGui* gui = milton->gui;
 
     // Brush Window
     if ( show_brush_window ) {
+        ImGui::SetNextWindowCollapsed(true, ImGuiSetCond_FirstUseEver);
         if ( ImGui_Begin(milton->gui, loc(TXT_brushes), 300, 160, default_imgui_window_flags) ) {
             if ( milton->current_mode == MiltonMode::PEN ||
                  milton->current_mode == MiltonMode::GRID ||

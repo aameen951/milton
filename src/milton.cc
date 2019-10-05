@@ -557,6 +557,49 @@ void do_catmull_rom_spline(CanvasView * view, CapturedStroke *cs, i32 idx, int s
         push(pressures, lerp(cs->points->data[idx-1].pressure, cs->points->data[idx].pressure, t));
     }
 }
+void do_cubic_hermite(CanvasView * view, CapturedStroke *cs, i32 idx, int steps, DArray<v2l> *points, DArray<f32> *pressures)
+{
+    v2l canvas_center = raster_to_canvas(view, VEC2L(view->screen_size/2));
+
+    v2f first_point;
+    {
+        auto p0 = v2l_to_v2f(cs->points->data[2].point - canvas_center);
+        auto p1 = v2l_to_v2f(cs->points->data[1].point - canvas_center);
+        auto p2 = v2l_to_v2f(cs->points->data[0].point - canvas_center);
+        auto d1 = p1-p0;
+        auto d2 = p2-p1;
+        first_point = p2 + rotate_v2f(d2, atan2(DET(d1, d2), DOT(d1, d2)));
+    }
+    v2f last_point;
+    {
+        auto p0 = v2l_to_v2f(cs->points->data[cs->points->count-3].point - canvas_center);
+        auto p1 = v2l_to_v2f(cs->points->data[cs->points->count-2].point - canvas_center);
+        auto p2 = v2l_to_v2f(cs->points->data[cs->points->count-1].point - canvas_center);
+        auto d1 = p1-p0;
+        auto d2 = p2-p1;
+        last_point = p2 + rotate_v2f(d2, atan2(DET(d1, d2), DOT(d1, d2)));
+    }
+
+    auto p0 = idx > 1 ? v2l_to_v2f(cs->points->data[idx-2].point - canvas_center) : first_point;
+    auto p1 = v2l_to_v2f(cs->points->data[idx-1].point - canvas_center);
+    auto p2 = v2l_to_v2f(cs->points->data[idx  ].point - canvas_center);
+    auto p3 = idx+1 < cs->points->count ? v2l_to_v2f(cs->points->data[idx+1].point - canvas_center) : last_point;
+
+    if(steps < 1) steps = 1;
+    f32 step_size = 1.0f / steps;
+    
+    for(i32 step_idx=1; step_idx<=steps; step_idx++)
+    {
+        f32 t = step_idx * step_size;
+        auto a = -1.0f*p0/2.0f + (3.0f*p1)/2.0f - (3.0f*p2)/2.0f + p3/2.0f;
+        auto b = p0 - (5.0f*p1)/2.0f + 2.0f*p2 - p3 / 2.0f;
+        auto c = -1.0f*p0/2.0f + p2/2.0f;
+        auto d = p1;
+        auto p = a*t*t*t + b*t*t + c*t + d;
+        push(points, v2f_to_v2l(p) + canvas_center);
+        push(pressures, lerp(cs->points->data[idx-1].pressure, cs->points->data[idx].pressure, t));
+    }
+}
 
 void debug_init(Milton *milton)
 {
@@ -569,12 +612,30 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
     auto dbg = milton->debug;
     auto ws = cs->ws;
 
-    ws->brush = milton_get_brush(milton);
+    ws->brush = cs->brush;
     ws->layer_id = milton->view->working_layer_id;
 
     ws->num_points = 0;
     ws->render_element.count = 0;
     ws->bounding_rect = rect_without_size();
+
+    cs->ows->brush = cs->brush;
+    cs->ows->brush.color *= 0.5f;
+    cs->ows->brush.alpha *= 0.5f;
+    cs->ows->layer_id = milton->view->working_layer_id;
+    cs->ows->render_element.count = 0;
+    cs->ows->bounding_rect = rect_without_size();
+    reserve(cs->ows_points, cs->points->count);
+    reserve(cs->ows_pressures, cs->points->count);
+    cs->ows->points = cs->ows_points->data;
+    cs->ows->pressures = cs->ows_pressures->data;
+    cs->ows->num_points = cs->points->count;
+
+    for(int i=0; i<cs->points->count; i++)
+    {
+        cs->ows->points[i] = cs->points->data[i].point;
+        cs->ows->pressures[i] = cs->points->data[i].pressure;
+    }
 
     if(dbg->smooth_algorithm == SmoothAlgorithm_Raw)
     {
@@ -592,21 +653,54 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
         debug_set_ws_point_count(cs, cs->points->count);
         ws->num_points = cs->points->count;
 
-        if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints && ws->num_points)
+        if(ws->num_points)
         {
             clear_smooth_filter(dbg->smooth_filter, cs->points->data[0].point);
-        }
-
-        for(int i=0; i<ws->num_points; i++)
-        {
-            auto point = cs->points->data[i].point;
-            if(dbg->smooth_algorithm == SmoothAlgorithm_AverageLastNPoints)
+            for(int i=0; i<ws->num_points; i++)
             {
-                point = smooth_filter(dbg->smooth_filter, point);
+                ws->points[i] = smooth_filter(dbg->smooth_filter, cs->points->data[i].point);
+                ws->pressures[i] = cs->points->data[i].pressure;
             }
-            ws->points[i] = point;
-            ws->pressures[i] = cs->points->data[i].pressure;
         }
+    }
+    else if(dbg->smooth_algorithm == SmoothAlgorithm_AverageNeighborNPoints)
+    {
+        debug_set_ws_point_count(cs, cs->points->count);
+        i32 out_i = 0;
+        if(cs->points->count)
+        {
+            f32 factor = 1.0f/9.0f;
+            for(int i=0; i<cs->points->count; i++)
+            {
+                auto point = cs->points->data[i].point;
+                auto prev_4 = i-4>=0                ? v2l_to_v2f(cs->points->data[i-4].point - point) : v2f{};
+                auto prev_3 = i-3>=0                ? v2l_to_v2f(cs->points->data[i-3].point - point) : v2f{};
+                auto prev_2 = i-2>=0                ? v2l_to_v2f(cs->points->data[i-2].point - point) : v2f{};
+                auto prev_1 = i-1>=0                ? v2l_to_v2f(cs->points->data[i-1].point - point) : v2f{};
+                auto next_1 = i+1<cs->points->count ? v2l_to_v2f(cs->points->data[i+1].point - point) : v2f{};
+                auto next_2 = i+2<cs->points->count ? v2l_to_v2f(cs->points->data[i+2].point - point) : v2f{};
+                auto next_3 = i+3<cs->points->count ? v2l_to_v2f(cs->points->data[i+3].point - point) : v2f{};
+                auto next_4 = i+4<cs->points->count ? v2l_to_v2f(cs->points->data[i+4].point - point) : v2f{};
+                auto p = 
+                factor * prev_4 +
+                factor * prev_3 +
+                factor * prev_2 +
+                factor * prev_1 +
+                factor * next_1 +
+                factor * next_2 +
+                factor * next_3 +
+                factor * next_4 +
+                v2f{};
+                auto op = v2f_to_v2l(p) + point;
+                if(out_i == 0 || op != ws->points[out_i-1])
+                {
+                    ws->points[out_i] = op;
+                    ws->pressures[out_i] = cs->points->data[i].pressure;
+                    out_i++;
+                }
+            }
+        }
+        ws->num_points = out_i;
     }
     else if(dbg->smooth_algorithm == SmoothAlgorithm_OldMiltonCubic)
     {
@@ -616,7 +710,6 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
     {
         if(cs->points->count >= 3)
         {
-            // NOTE(ameen): Make initial room in the buffers and initialize ws
             cs->ws_points->count = 0;
             cs->ws_pressures->count = 0;
 
@@ -647,7 +740,6 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
     {
         if(cs->points->count >= 3)
         {
-            // NOTE(ameen): Make initial room in the buffers and initialize ws
             cs->ws_points->count = 0;
             cs->ws_pressures->count = 0;
 
@@ -658,17 +750,21 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
             {
                 auto p0 = cs->points->data[idx-1].point;
                 auto p1 = cs->points->data[idx  ].point;
-                auto d = (1.0f/milton->view->scale) * v2l_to_v2f(p1-p0);
+                auto d = (1.0f/cs->scale) * v2l_to_v2f(p1-p0);
                 auto len = magnitude(d);
                 if(len > dbg->catmul_min_length)
                 {
                     auto steps = floor(len / (f32)dbg->catmul_min_length) + 1;
                     do_catmull_rom_spline(milton->view, cs, idx, steps, cs->ws_points, cs->ws_pressures);
                 }
-                else
+                else if(len > 0.8f)
                 {
                     push(cs->ws_points, cs->points->data[idx].point);
                     push(cs->ws_pressures, cs->points->data[idx].pressure);
+                }
+                else
+                {
+                    cs->ws_pressures->data[cs->ws_pressures->count-1] = cs->points->data[idx].pressure;
                 }
             }
             mlt_assert(cs->ws_points->count == cs->ws_pressures->count);
@@ -686,6 +782,80 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
                 ws->pressures[i] = cs->points->data[i].pressure;
             }
         }
+    }
+    else if(dbg->smooth_algorithm == SmoothAlgorithm_DynamicCubicHermite)
+    {
+        if(cs->points->count >= 3)
+        {
+            cs->ws_points->count = 0;
+            cs->ws_pressures->count = 0;
+
+            push(cs->ws_points, cs->points->data[0].point);
+            push(cs->ws_pressures, cs->points->data[0].pressure);
+
+            for(i32 idx = 1; idx < cs->points->count; idx++)
+            {
+                auto p0 = cs->points->data[idx-1].point;
+                auto p1 = cs->points->data[idx  ].point;
+                auto d = (1.0f/cs->scale) * v2l_to_v2f(p1-p0);
+                auto len = magnitude(d);
+                if(len > dbg->catmul_min_length)
+                {
+                    auto steps = floor(len / (f32)dbg->catmul_min_length) + 1;
+                    do_cubic_hermite(milton->view, cs, idx, steps, cs->ws_points, cs->ws_pressures);
+                }
+                else if(len > 0.8f)
+                {
+                    push(cs->ws_points, cs->points->data[idx].point);
+                    push(cs->ws_pressures, cs->points->data[idx].pressure);
+                }
+                else
+                {
+                    cs->ws_pressures->data[cs->ws_pressures->count-1] = cs->points->data[idx].pressure;
+                }
+            }
+            mlt_assert(cs->ws_points->count == cs->ws_pressures->count);
+            ws->num_points = cs->ws_points->count;
+            debug_set_ws_point_count(cs, ws->num_points);
+        }
+        else
+        {
+            debug_set_ws_point_count(cs, cs->points->count);
+            ws->num_points = cs->points->count;
+
+            for(int i=0; i<ws->num_points; i++)
+            {
+                ws->points[i] = cs->points->data[i].point;
+                ws->pressures[i] = cs->points->data[i].pressure;
+            }
+        }
+    }
+    else if(dbg->smooth_algorithm == SmoothAlgorithm_SarahFriskenAlg)
+    {
+        // if(cs->points->count >= 3)
+        // {
+        //     auto bzo = cs->points->data[0].point;
+        //     auto bz0 = v2f{};
+        //     auto bz1 = v2f{};
+        //     auto bz2 = v2f{};
+        //     auto bz3 = v2l_to_v2f(cs->points->data[1].point - bzo);
+
+        //     for(i32 idx = 1; idx < cs->points->count; idx++)
+        //     {
+        //         auto p = cs->points->data[idx].point;
+        //     }
+        // }
+        // else
+        // {
+        //     debug_set_ws_point_count(cs, cs->points->count);
+        //     ws->num_points = cs->points->count;
+
+        //     for(int i=0; i<ws->num_points; i++)
+        //     {
+        //         ws->points[i] = cs->points->data[i].point;
+        //         ws->pressures[i] = cs->points->data[i].pressure;
+        //     }
+        // }
     }
 }
 f32 get_pressure(MiltonInput *input, int input_i)
@@ -711,14 +881,17 @@ debug_stroke_input(Milton *milton, MiltonInput *input, b32 end_stroke)
             *milton->debug->current_stroke = {};
         }
         auto cs = milton->debug->current_stroke;
-        cs->radius = milton_get_brush_radius(milton);
         cs->update_stroke = true;
         for ( int input_i = 0; input_i < input->input_count; ++input_i ) {
 
             v2l in_point = input->points[input_i];
             v2l canvas_point = raster_to_canvas(milton->view, in_point);
             f32 pressure = get_pressure(input, input_i);
-
+            if(cs->points->count == 0)
+            {
+                cs->scale = milton->view->scale;
+                cs->brush = milton_get_brush(milton);
+            }
             if(milton->debug->is_point_mode)
             {
                 if(cs->points->count == 0 || milton->debug->need_new_point)

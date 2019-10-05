@@ -83,6 +83,17 @@ typedef Vector2<float>   v2f;
     a.y OP b;            \
     return a;               \
 }
+#define operator4_assign_scalar(OP) \
+    template<typename T> \
+    Vector4<T>& \
+    operator OP (Vector4<T>& a, T b) \
+{                           \
+    a.x OP b;            \
+    a.y OP b;            \
+    a.z OP b;            \
+    a.w OP b;            \
+    return a;               \
+}
 
 operator2_vector(+)
 operator2_vector(-)
@@ -221,4 +232,6 @@ operator == (const Vector4<Type>& a, const Vector4<Type>& b)
 
 typedef Vector4<float>  v4f;
 typedef Vector4<i32>    v4i;
+
+operator4_assign_scalar(*=)
 
