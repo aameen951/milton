@@ -173,9 +173,12 @@ struct RenderSettings
 {
     b32 do_full_redraw;
 };
-struct SarahFriskenState
+struct BezierCurve
 {
-
+    v2f c0;
+    v2f c1;
+    v2f c2;
+    v2f c3;
 };
 struct PointPressure
 {
@@ -207,8 +210,8 @@ struct StrokeDebugContext
     bool need_new_point;
     SmoothAlgorithm smooth_algorithm;
     int catmul_min_length;
+    float sarah_frisken_max_error;
     SmoothFilter smooth_filter[1];
-    SarahFriskenState sarah_frisken[1];
 
     b32 full_render;
     b32 custom_render;

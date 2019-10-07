@@ -600,12 +600,87 @@ void do_cubic_hermite(CanvasView * view, CapturedStroke *cs, i32 idx, int steps,
         push(pressures, lerp(cs->points->data[idx-1].pressure, cs->points->data[idx].pressure, t));
     }
 }
+v2f bezier(BezierCurve c, float t)
+{
+    float nt = 1.0f - t;
+    return nt*nt*nt*c.c0 + 3*nt*nt*t*c.c1 + 3*nt*t*t*c.c2 + t*t*t*c.c3;
+}
+v2f get_vector_distance(CapturedStroke *cs, i32 s_idx, i32 e_idx, v2l bzo, v2f tp)
+{
+    auto scale = (1.0f/cs->scale);
+    v2f closest_vd = {};
+    float closest_dist = FLT_MAX;
+    for(i32 j=s_idx; j<e_idx; j++)
+    {
+        auto l0 = scale * v2l_to_v2f(cs->points->data[j  ].point - bzo);
+        auto l1 = scale * v2l_to_v2f(cs->points->data[j+1].point - bzo);
+        auto v = l1 - l0;
+        auto vlen = norm(v);
+        v = v / vlen;
+        auto rtp = tp - l0;
+        auto proj = DOT(rtp, v);
+        proj = max(min(proj, vlen), 0);
+        auto vd = proj*v - rtp;
+        auto dist = norm(vd);
+        if(dist < closest_dist)
+        {
+            closest_dist = dist;
+            closest_vd = vd;
+        }
+    }
+    return closest_vd;
+}
+bool add_point_to_curve(CapturedStroke *cs, BezierCurve *cv, v2f p, i32 s_idx, i32 e_idx, v2l bzo, float max_error)
+{
+    auto c = *cv;
+    c.c2 += p - c.c3;
+    c.c3 = p;
+    i32 max_iterations = 4;
+    for(i32 iter=0; iter < max_iterations; iter++)
+    {
+        v2f f1 = {};
+        v2f f2 = {};
+        i32 N = 5;
+        for(i32 i=0; i<N; i++)
+        {
+            float t = (float)i/N;
+            auto tp = bezier(c, t);
+            
+            auto vd = get_vector_distance(cs, s_idx, e_idx, bzo, tp);
+            auto vd_len = norm(vd);
 
+            f1 += 6.0f/N * t * (1-t) * (1-t) * vd;
+            f2 += 6.0f/N * t * t * (1-t) * vd;
+        }
+        c.c1 += f1;
+        c.c2 += f2;
+
+        float error = 0;
+        for(i32 i=0; i<N; i++)
+        {
+            float t = (float)i/N;
+            auto tp = bezier(c, t);
+            
+            auto vd = get_vector_distance(cs, s_idx, e_idx, bzo, tp);
+            error += DOT(vd, vd);
+        }
+        if(error <= max_error)
+        {
+            *cv = c;
+            return true;
+        }
+    }
+    return false;
+}
 void debug_init(Milton *milton)
 {
     auto dbg = milton->debug;
     dbg->visible = true;
+    dbg->show_raw = true;
+    dbg->mark_points = true;
+    dbg->is_point_mode = true;
     dbg->catmul_min_length = 8;
+    dbg->sarah_frisken_max_error = 10;
 }
 void debug_update_stroke(CapturedStroke *cs, Milton *milton)
 {
@@ -832,30 +907,73 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
     }
     else if(dbg->smooth_algorithm == SmoothAlgorithm_SarahFriskenAlg)
     {
-        // if(cs->points->count >= 3)
-        // {
-        //     auto bzo = cs->points->data[0].point;
-        //     auto bz0 = v2f{};
-        //     auto bz1 = v2f{};
-        //     auto bz2 = v2f{};
-        //     auto bz3 = v2l_to_v2f(cs->points->data[1].point - bzo);
+        if(cs->points->count >= 1)
+        {
+            auto bzo = cs->points->data[0].point;
+            DArray<BezierCurve> curves = {};
 
-        //     for(i32 idx = 1; idx < cs->points->count; idx++)
-        //     {
-        //         auto p = cs->points->data[idx].point;
-        //     }
-        // }
-        // else
-        // {
-        //     debug_set_ws_point_count(cs, cs->points->count);
-        //     ws->num_points = cs->points->count;
+            BezierCurve *cv = NULL;
+            bool need_new_curve = true;
+            auto scale = (1.0f/cs->scale);
+            i32 s_idx = 0;
+            float max_error = dbg->sarah_frisken_max_error*dbg->sarah_frisken_max_error;
 
-        //     for(int i=0; i<ws->num_points; i++)
-        //     {
-        //         ws->points[i] = cs->points->data[i].point;
-        //         ws->pressures[i] = cs->points->data[i].pressure;
-        //     }
-        // }
+            for(i32 idx = 1; idx < cs->points->count; )
+            {
+                auto p = scale * v2l_to_v2f(cs->points->data[idx].point - bzo);
+                if(need_new_curve)
+                {
+                    s_idx = idx - 1;
+                    auto pp = scale * v2l_to_v2f(cs->points->data[idx-1].point - bzo);
+                    cv = add(&curves);
+                    cv->c0 = cv->c1 = cv->c2 = cv->c3 = pp;
+                }
+
+                if(!add_point_to_curve(cs, cv, p, s_idx, idx, bzo, max_error))
+                {
+                    mlt_assert(!need_new_curve);
+                    need_new_curve = true;
+                }
+                else
+                {
+                    need_new_curve = false;
+                    idx++;
+                }
+            }
+
+            cs->ws_points->count = 0;
+            cs->ws_pressures->count = 0;
+
+            for(i32 c_idx = 0; c_idx < curves.count; c_idx++)
+            {
+                auto c = curves.data[c_idx];
+                // TODO(ameen): This approach is not good. Instead break it into smaller bezier until all control
+                // points are on the same line.
+                auto len = magnitude(c.c1-c.c0)+magnitude(c.c2-c.c1)+magnitude(c.c3-c.c2);
+                auto steps = floor(len / (f32)dbg->catmul_min_length) + 1;
+                for(i32 i=0; i<=steps; i++)
+                {
+                    float t = (float)i/steps;
+                    auto tp = v2f_to_v2l((float)cs->scale * bezier(c, t)) + bzo;
+                    push(cs->ws_points, tp);
+                    push(cs->ws_pressures, 1.0f);
+                }
+            }
+            mlt_assert(cs->ws_points->count == cs->ws_pressures->count);
+            ws->num_points = cs->ws_points->count;
+            debug_set_ws_point_count(cs, ws->num_points);
+        }
+        else
+        {
+            debug_set_ws_point_count(cs, cs->points->count);
+            ws->num_points = cs->points->count;
+
+            for(int i=0; i<ws->num_points; i++)
+            {
+                ws->points[i] = cs->points->data[i].point;
+                ws->pressures[i] = cs->points->data[i].pressure;
+            }
+        }
     }
 }
 f32 get_pressure(MiltonInput *input, int input_i)

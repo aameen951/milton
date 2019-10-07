@@ -351,6 +351,10 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
             {
                 toggle = ImGui::SliderInt("Apply if longer (px)", &dbg->catmul_min_length, 1, 200) || toggle;
             }
+            else if(dbg->smooth_algorithm == SmoothAlgorithm_SarahFriskenAlg)
+            {
+                toggle = ImGui::SliderFloat("Max Error", &dbg->sarah_frisken_max_error, 0.1f, 100.0f) || toggle;
+            }
             if ( toggle ) {
                 for(i32 i=0; i<dbg->strokes->count; i++)
                     (*dbg->strokes)[i].update_stroke = true;
