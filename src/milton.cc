@@ -33,7 +33,7 @@ init_view(CanvasView* view, v3f background_color, i32 width, i32 height)
 
     *view = CanvasView{};
 
-	view->size = sizeof(CanvasView);
+    view->size = sizeof(CanvasView);
     view->background_color  = background_color;
     view->screen_size       = size;
     view->zoom_center       = size / 2;
@@ -216,7 +216,7 @@ static void
 milton_primitive_input(Milton* milton, MiltonInput const* input, b32 end_stroke)
 {
     if ( end_stroke && milton->primitive_fsm == Primitive_DRAWING) {
-       milton->primitive_fsm = Primitive_WAITING;
+        milton->primitive_fsm = Primitive_WAITING;
     }
     else if (input->input_count > 0) {
         v2l point = raster_to_canvas(milton->view, input->points[input->input_count - 1]);
@@ -230,7 +230,7 @@ milton_primitive_input(Milton* milton, MiltonInput const* input, b32 end_stroke)
             ws->layer_id                      = milton->view->working_layer_id;
         }
         else if ( milton->primitive_fsm == Primitive_DRAWING ) {
-           milton->working_stroke.points[1] = point;
+            milton->working_stroke.points[1] = point;
         }
     }
 }
@@ -430,7 +430,7 @@ milton_get_brush_radius_for_enum(Milton const* milton, int brush_enum)
 {
     i32 brush_size = milton->brush_sizes[brush_enum];
     if ( brush_size <= 0 ) {
-       brush_size = 1;
+        brush_size = 1;
     }
     return brush_size;
 }
@@ -591,8 +591,6 @@ milton_init(Milton* milton, i32 width, i32 height, f32 ui_scale, PATH_CHAR* file
 
     // Set default brush.
     {
-        milton->working_stroke.flags |= StrokeFlag_DISTANCE_TO_OPACITY;  // Soft brush.
-
         for ( int i = 0; i < BrushEnum_COUNT; ++i ) {
 
             milton->brushes[i].alpha = 1.0f;
@@ -600,19 +598,19 @@ milton_init(Milton* milton, i32 width, i32 height, f32 ui_scale, PATH_CHAR* file
 
             switch ( i ) {
             case BrushEnum_PEN: {
-               milton->brush_sizes[i] = 30;
+                milton->brush_sizes[i] = 30;
             } break;
             case BrushEnum_ERASER: {
-               milton->brush_sizes[i] = 40;
+                milton->brush_sizes[i] = 40;
             } break;
             case BrushEnum_PRIMITIVE: {
-               milton->brush_sizes[i] = 10;
+                milton->brush_sizes[i] = 10;
             } break;
             case BrushEnum_NOBRUSH: { {
-               milton->brush_sizes[i] = 1;
+                milton->brush_sizes[i] = 1;
             } } break;
             default: {
-               INVALID_CODE_PATH;
+                INVALID_CODE_PATH;
             } break;
             }
             mlt_assert(milton->brush_sizes[i] > 0 && milton->brush_sizes[i] <= MILTON_MAX_BRUSH_SIZE);
@@ -872,7 +870,7 @@ milton_save_thread(void* state_)
                     milton->save_flag = SaveEnum_WAITING;
                 }
             }
-			wait_begin_us = perf_counter();
+            wait_begin_us = perf_counter();
         }
         SDL_UnlockMutex(milton->save_mutex);
 
@@ -1172,9 +1170,12 @@ drag_brush_size_tick(Milton* milton, MiltonInput const* input)
     i64 mouse_x = platform_cursor_get_position(milton->platform).x;
 
     f32 new_size = drag->start_size + drag_factor * (mouse_x - drag->start_point.x);
+    if ( new_size < 1 )
+        new_size = 1;
+    if ( new_size > 300 )
+        new_size = 300;
     milton_set_brush_size_for_enum(milton, static_cast<i32>(new_size), drag->brush_idx);
     milton_update_brushes(milton);
-    // platform_cursor_set_position(drag->start_point);
 }
 
 void
@@ -1410,9 +1411,8 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
     else {
         milton->working_stroke.flags &= ~StrokeFlag_ERASER;
     }
-
     if ( current_mode_is_for_drawing(milton) &&
-        (input->input_count > 0 || (input->flags | MiltonInputFlags_CLICK)) ) {
+        (input->input_count > 0 || end_stroke) ) {
         if ( !is_user_drawing(milton)
              && gui_consume_input(milton->gui, input) ) {
             milton_update_brushes(milton);
@@ -1465,12 +1465,8 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
                          point);
         gpu_update_picker(milton->renderer, &milton->gui->picker);
         if( input->flags & MiltonInputFlags_CLICKUP ) {
-            if ( !(milton->flags & MiltonStateFlags_IGNORE_NEXT_CLICKUP) ) {
-                milton_update_brushes(milton);
-                milton_leave_mode(milton);
-            } else {
-                milton->flags &= ~MiltonStateFlags_IGNORE_NEXT_CLICKUP;
-            }
+            milton_update_brushes(milton);
+            milton_leave_mode(milton);
         }
         render_flags |= RenderBackendFlags_GUI_VISIBLE;
     }
@@ -1503,10 +1499,8 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
                 CanvasState* canvas = milton->canvas;
                 copy_stroke(&canvas->arena, milton->view, &milton->working_stroke, &new_stroke);
                 {
-                    new_stroke.brush = milton->working_stroke.brush;
                     new_stroke.layer_id = milton->view->working_layer_id;
-                    new_stroke.bounding_rect = rect_union(bounding_box_for_stroke(&new_stroke),
-                                                        bounding_box_for_stroke(&new_stroke));
+                    new_stroke.bounding_rect = bounding_box_for_stroke(&new_stroke);
 
                     new_stroke.id = milton->canvas->stroke_id_count++;
 
@@ -1546,7 +1540,7 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
     }
 
     MiltonMode current_mode = milton->current_mode;
-    if ( input->mode_to_set < MiltonMode::COUNT ) {
+    if ( input->mode_to_set < MiltonMode::MODE_COUNT ) {
         if ( current_mode == input->mode_to_set ) {
             // Modes we can toggle
             MiltonMode toggleable_modes[] = {

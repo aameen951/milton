@@ -77,17 +77,15 @@ shortcut_handle_key(Milton* milton, PlatformState* platform, SDL_Event* event, M
         }
         else {
             switch (k) {
-                case SDLK_TAB: { active_key = SDLK_TAB;  } break;
-                case SDLK_ESCAPE: { active_key = Binding::ESC; } break;
-                case SDLK_F1: { active_key = Binding::F1; } break;
-                case SDLK_F2: { active_key = Binding::F2; } break;
-                case SDLK_F3: { active_key = Binding::F3; } break;
-                case SDLK_F4: { active_key = Binding::F4; } break;
-                case SDLK_F5: { active_key = Binding::F5; } break;
-                case SDLK_F6: { active_key = Binding::F6; } break;
-                case SDLK_F7: { active_key = Binding::F7; } break;
-                case SDLK_F8: { active_key = Binding::F8; } break;
-                case SDLK_F9: { active_key = Binding::F9; } break;
+                case SDLK_F1:  { active_key = Binding::F1;  } break;
+                case SDLK_F2:  { active_key = Binding::F2;  } break;
+                case SDLK_F3:  { active_key = Binding::F3;  } break;
+                case SDLK_F4:  { active_key = Binding::F4;  } break;
+                case SDLK_F5:  { active_key = Binding::F5;  } break;
+                case SDLK_F6:  { active_key = Binding::F6;  } break;
+                case SDLK_F7:  { active_key = Binding::F7;  } break;
+                case SDLK_F8:  { active_key = Binding::F8;  } break;
+                case SDLK_F9:  { active_key = Binding::F9;  } break;
                 case SDLK_F10: { active_key = Binding::F10; } break;
                 case SDLK_F11: { active_key = Binding::F11; } break;
                 case SDLK_F12: { active_key = Binding::F12; } break;
@@ -205,7 +203,7 @@ MiltonInput
 sdl_event_loop(Milton* milton, PlatformState* platform)
 {
     MiltonInput milton_input = {};
-    milton_input.mode_to_set = MiltonMode::COUNT;
+    milton_input.mode_to_set = MiltonMode::MODE_COUNT;
 
     b32 pointer_up = false;
 
@@ -317,7 +315,6 @@ sdl_event_loop(Milton* milton, PlatformState* platform)
                         v2i point = v2i{(int)long_point.x, (int)long_point.y};
 
                         if ( !platform->is_panning && point.x >= 0 && point.y > 0 ) {
-                            milton_input.flags |= MiltonInputFlags_CLICK;
                             milton_input.click = point;
 
                             platform->is_pointer_down = true;
@@ -343,6 +340,10 @@ sdl_event_loop(Milton* milton, PlatformState* platform)
                      || event.button.button == SDL_BUTTON_RIGHT ) {
                     if ( event.button.button == SDL_BUTTON_MIDDLE ) {
                         platform->is_middle_button_down = false;
+                    }
+                    if ( ImGui::GetIO().WantCaptureMouse ) {
+                        // NOTE(ameen): button-click events that cause UI changes have 1 frame delay to update.
+                        platform->force_next_frame = true;
                     }
                     pointer_up = true;
                     milton_input.flags |= MiltonInputFlags_CLICKUP;
@@ -666,23 +667,22 @@ milton_main(bool is_fullscreen, char* file_to_open)
     platform.ui_scale = platform_ui_scale(&platform);
     milton_log("UI scale is %f\n", platform.ui_scale);
     // Initialize milton
-    {
-        PATH_CHAR* file_to_open_ = NULL;
-        PATH_CHAR buffer[MAX_PATH] = {};
+    PATH_CHAR* file_to_open_ = NULL;
+    PATH_CHAR buffer[MAX_PATH] = {};
 
-        if ( file_to_open ) {
-            file_to_open_ = (PATH_CHAR*)buffer;
-        }
-
-        str_to_path_char(file_to_open, (PATH_CHAR*)file_to_open_, MAX_PATH*sizeof(*file_to_open_));
-
-        milton_init(milton, platform.width, platform.height, platform.ui_scale, (PATH_CHAR*)file_to_open_);
-        milton->platform = &platform;
-        milton->gui->menu_visible = true;
-        if ( is_fullscreen ) {
-            milton->gui->menu_visible = false;
-        }
+    if ( file_to_open ) {
+        file_to_open_ = (PATH_CHAR*)buffer;
     }
+
+    str_to_path_char(file_to_open, (PATH_CHAR*)file_to_open_, MAX_PATH*sizeof(*file_to_open_));
+
+    milton_init(milton, platform.width, platform.height, platform.ui_scale, (PATH_CHAR*)file_to_open_);
+    milton->platform = &platform;
+    milton->gui->menu_visible = true;
+    if ( is_fullscreen ) {
+        milton->gui->menu_visible = false;
+    }
+
     milton_resize_and_pan(milton, {}, {platform.width, platform.height});
 
     platform.window_id = SDL_GetWindowID(window);
@@ -794,10 +794,10 @@ milton_main(bool is_fullscreen, char* file_to_open)
 
             // Convert x,y to pixels
             {
-               v2l v = { (long)x, (long)y };
-               platform_point_to_pixel(&platform, &v);
-               x = v.x;
-               y = v.y;
+                v2l v = { (long)x, (long)y };
+                platform_point_to_pixel(&platform, &v);
+                x = v.x;
+                y = v.y;
             }
 
             // NOTE: Calling SDL_SetCursor more than once seems to cause flickering.
@@ -886,7 +886,7 @@ milton_main(bool is_fullscreen, char* file_to_open)
             input_flags |= MiltonInputFlags_IMGUI_GRABBED_INPUT;
         }
 
-        milton_imgui_tick(&milton_input, &platform, milton);
+        milton_imgui_tick(&milton_input, &platform, milton, &prefs);
 
         // Clear pan delta if we are zooming
         if ( milton_input.scale != 0 ) {
@@ -960,23 +960,22 @@ milton_main(bool is_fullscreen, char* file_to_open)
         if ( !platform.force_next_frame ) {
             SDL_WaitEvent(NULL);
         }
+        else {
+            platform.force_next_frame = false;
+        }
     }
 
     platform_deinit(&platform);
 
     arena_free(&milton->root_arena);
 
-    if(!is_fullscreen) {
-        bool save_prefs = prefs.width != platform.width || prefs.height != platform.height;
-        if ( save_prefs ) {
-            v2l size =  { platform.width,platform.height };
-            platform_pixel_to_point(&platform, &size);
+    // Save preferences.
+    v2l size =  { platform.width,platform.height };
+    platform_pixel_to_point(&platform, &size);
 
-            prefs.width  = size.w;
-            prefs.height = size.h;
-            platform_settings_save(&prefs);
-        }
-    }
+    prefs.width  = size.w;
+    prefs.height = size.h;
+    platform_settings_save(&prefs);
 
     SDL_Quit();
 

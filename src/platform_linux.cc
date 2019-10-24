@@ -122,8 +122,18 @@ linux_set_GTK_filter(GtkFileChooser* chooser, GtkFileFilter* filter, FileKind ki
 void
 platform_dialog(char* info, char* title)
 {
-    // IMPL_MISSING;
-    return;
+    platform_cursor_show();
+    GtkWidget *dialog = gtk_message_dialog_new(
+            NULL,
+            (GtkDialogFlags)0,
+            GTK_MESSAGE_INFO,
+            GTK_BUTTONS_OK,
+            "%s",
+            info
+            );
+    gtk_window_set_title(GTK_WINDOW(dialog), title);
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
 }
 
 b32
@@ -145,6 +155,30 @@ platform_dialog_yesno(char* info, char* title)
     }
     gtk_widget_destroy(dialog);
     return true;
+}
+
+YesNoCancelAnswer
+platform_dialog_yesnocancel(char* info, char* title)
+{
+    // NOTE: As of 2019-09-23, this function hasn't been tested on Linux.
+
+    platform_cursor_show();
+    GtkWidget *dialog = gtk_message_dialog_new(
+            NULL,
+            (GtkDialogFlags)0,
+            GTK_MESSAGE_QUESTION,
+            GTK_BUTTONS_OK_CANCEL,
+            "%s",
+            info
+            );
+    gtk_window_set_title(GTK_WINDOW(dialog), title);
+    gint answer = gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+    if ( answer == GTK_RESPONSE_YES )
+        return YesNoCancelAnswer::YES_;
+    if ( answer == GTK_RESPONSE_NO )
+        return YesNoCancelAnswer::NO_;
+    return YesNoCancelAnswer::CANCEL_;
 }
 
 void
@@ -182,7 +216,7 @@ platform_fname_at_config(PATH_CHAR* fname, size_t len)
 void
 platform_fname_at_exe(PATH_CHAR* fname, size_t len)
 {
-   // TODO: Fix this
+    // TODO: Fix this
 #if 0
     u32 bufsize = (u32)len;
     char buffer[MAX_PATH] = {};
@@ -252,7 +286,12 @@ platform_open_dialog(FileKind kind)
 void
 platform_open_link(char* link)
 {
-    IMPL_MISSING;
+    // This variant isn't safe.
+    char browser[strlen(link) + 12];            //  2 quotes + 1 space + 8 'xdg-open' + 1 end
+    strcpy(browser, "xdg-open '");
+    strcat(browser, link);
+    strcat(browser, "'");
+    system(browser);
     return;
 }
 
@@ -304,7 +343,7 @@ platform_get_walltime()
 }
 
 void*
-platform_get_gl_proc(char* name) 
+platform_get_gl_proc(char* name)
 {
     return glXGetProcAddressARB((GLubyte*)name);
 }
@@ -319,4 +358,23 @@ void
 platform_setup_cursor(Arena* arena, PlatformState* platform)
 {
 
+}
+
+v2i
+platform_cursor_get_position(PlatformState* platform)
+{
+    v2i pos;
+
+    SDL_GetMouseState(&pos.x, &pos.y);
+    return pos;
+}
+
+void
+platform_cursor_set_position(PlatformState* platform, v2i pos)
+{
+    SDL_WarpMouseInWindow(platform->window, pos.x, pos.y);
+    // Pending mouse move events will have the cursor close
+    // to where it was before we set it.
+    SDL_FlushEvent(SDL_MOUSEMOTION);
+    SDL_FlushEvent(SDL_SYSWMEVENT);
 }

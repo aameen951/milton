@@ -511,6 +511,22 @@ platform_dialog_yesno(char* info, char* title)
     return yes == IDYES;
 }
 
+YesNoCancelAnswer
+platform_dialog_yesnocancel(char* info, char* title)
+{
+    platform_cursor_show();
+    i32 answer = MessageBoxA(NULL, //_In_opt_ HWND    hWnd,
+                             (LPCSTR)info, // _In_opt_ LPCTSTR lpText,
+                             (LPCSTR)title,// _In_opt_ LPCTSTR lpCaption,
+                             MB_YESNOCANCEL//_In_     UINT    uType
+                            );
+    if ( answer == IDYES )
+        return YesNoCancelAnswer::YES_;
+    if ( answer == IDNO )
+        return YesNoCancelAnswer::NO_;
+    return YesNoCancelAnswer::CANCEL_;
+}
+
 void
 platform_dialog(char* info, char* title)
 {
@@ -709,10 +725,10 @@ win32_client_to_screen(HWND hwnd, v2i client)
 {
     POINT point = { client.x, client.y };
     int res = MapWindowPoints(
-      hwnd,
-      HWND_DESKTOP,
-      &point,
-      1
+        hwnd,
+        HWND_DESKTOP,
+        &point,
+        1
     );
 
     if (res == 0) {
@@ -728,10 +744,10 @@ win32_screen_to_client(HWND hwnd, v2i screen)
 {
     POINT point = { screen.x, screen.y };
     int res = MapWindowPoints(
-      HWND_DESKTOP,
-      hwnd,
-      &point,
-      1
+        HWND_DESKTOP,
+        hwnd,
+        &point,
+        1
     );
 
     if (res == 0) {

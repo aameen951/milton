@@ -152,20 +152,44 @@ struct PlatformSettings
     // Store the window size at the time of quitting.
     i32 width;
     i32 height;
+
     // Last opened file.
     PATH_CHAR last_mlt_file[MAX_PATH];
 
+    // GUI settings.
+    i32 brush_window_left;
+    i32 brush_window_top;
+    i32 brush_window_width;
+    i32 brush_window_height;
+
+    i32 layer_window_left;
+    i32 layer_window_top;
+    i32 layer_window_width;
+    i32 layer_window_height;
 };
 
 // Defined in platform_windows.cc
 FILE*   platform_fopen(const PATH_CHAR* fname, const PATH_CHAR* mode);
 
-// Returns a 0-terminated string with the full path of the target file. NULL if error.
+// Returns a 0-terminated string with the full path of the target file.
+// If the user cancels the operation it returns NULL.
 PATH_CHAR*   platform_open_dialog(FileKind kind);
 PATH_CHAR*   platform_save_dialog(FileKind kind);
 
 void    platform_dialog(char* info, char* title);
 b32     platform_dialog_yesno(char* info, char* title);
+
+// NOTE: These constants end with an underscore in order to prevent issues on
+// macOS where the Objective-C headers define macros `YES` and `NO` as part of
+// the `BOOL` type. Removing the underscores and compiling on macOS causes the
+// compiler to attempt macro expansion on these names resulting in errors.
+enum YesNoCancelAnswer
+{
+    YES_,
+    NO_,
+    CANCEL_,
+};
+YesNoCancelAnswer platform_dialog_yesnocancel(char* info, char* title);
 
 void*   platform_get_gl_proc(char* name);
 void    platform_load_gl_func_pointers();

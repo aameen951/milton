@@ -71,7 +71,7 @@ set_default_bindings(MiltonBindings* bs)
     binding(bs, Modifier_NONE, 'i', Action_MODE_EYEDROPPER);
     binding(bs, Modifier_NONE, 'l', Action_MODE_PRIMITIVE);
     binding(bs, Modifier_NONE, Binding::F1, Action_HELP);
-    binding(bs, Modifier_NONE, '\t', Action_TOGGLE_GUI);
+    binding(bs, Modifier_NONE, Binding::TAB, Action_TOGGLE_GUI);
 
     binding(bs, Modifier_NONE, '1', Action_SET_BRUSH_ALPHA_10);
     binding(bs, Modifier_NONE, '2', Action_SET_BRUSH_ALPHA_20);
@@ -126,23 +126,25 @@ binding_dispatch_action(BindableAction a, MiltonInput* input, Milton* milton, v2
             milton_try_quit(milton);
         } break;
         case Action_NEW: {
-            b32 save_file = false;
+            YesNoCancelAnswer save_file = YesNoCancelAnswer::NO_;
             if ( layer::count_strokes(milton->canvas->root_layer) > 0 ) {
                 if ( milton->flags & MiltonStateFlags_DEFAULT_CANVAS ) {
-                    save_file = platform_dialog_yesno(default_will_be_lost, "Save?");
+                    save_file = platform_dialog_yesnocancel(default_will_be_lost, "Save?");
                 }
             }
-            if ( save_file ) {
+            if ( save_file == YesNoCancelAnswer::CANCEL_ )
+                break;
+            if ( save_file == YesNoCancelAnswer::YES_ ) {
                 PATH_CHAR* name = platform_save_dialog(FileKind_MILTON_CANVAS);
-                if ( name ) {
-                    milton_log("Saving to %s\n", name);
-                    milton_set_canvas_file(milton, name);
-                    milton_save(milton);
-                    b32 del = platform_delete_file_at_config(TO_PATH_STR("MiltonPersist.mlt"), DeleteErrorTolerance_OK_NOT_EXIST);
-                    if ( del == false ) {
-                        platform_dialog("Could not delete contents. The work will be still be there even though you saved it to a file.",
-                            "Info");
-                    }
+                if ( !name ) // save dialog was cancelled
+                    break;
+                milton_log("Saving to %s\n", name);
+                milton_set_canvas_file(milton, name);
+                milton_save(milton);
+                b32 del = platform_delete_file_at_config(TO_PATH_STR("MiltonPersist.mlt"), DeleteErrorTolerance_OK_NOT_EXIST);
+                if ( del == false ) {
+                    platform_dialog("Could not delete contents. The work will be still be there even though you saved it to a file.",
+                        "Info");
                 }
             }
             milton_reset_canvas_and_set_default(milton);
@@ -159,7 +161,7 @@ binding_dispatch_action(BindableAction a, MiltonInput* input, Milton* milton, v2
                 milton_set_canvas_file(milton, name);
                 input->flags |= MiltonInputFlags_SAVE_FILE;
                 b32 del = platform_delete_file_at_config(TO_PATH_STR("MiltonPersist.mlt"),
-                   DeleteErrorTolerance_OK_NOT_EXIST);
+                    DeleteErrorTolerance_OK_NOT_EXIST);
                 if ( del == false ) {
                     platform_dialog("Could not delete default canvas. Contents will be still there when you create a new canvas.",
                         "Info");
@@ -168,7 +170,7 @@ binding_dispatch_action(BindableAction a, MiltonInput* input, Milton* milton, v2
         } break;
         case Action_OPEN: {
             b32 save_requested = false;
-                          // If current canvas is MiltonPersist, then prompt to save
+            // If current canvas is MiltonPersist, then prompt to save
             if ( ( milton->flags & MiltonStateFlags_DEFAULT_CANVAS ) ) {
                 b32 save_file = false;
                 if ( layer::count_strokes(milton->canvas->root_layer) > 0 ) {
@@ -181,7 +183,7 @@ binding_dispatch_action(BindableAction a, MiltonInput* input, Milton* milton, v2
                         milton_set_canvas_file(milton, name);
                         milton_save(milton);
                         b32 del = platform_delete_file_at_config(TO_PATH_STR("MiltonPersist.mlt"),
-                           DeleteErrorTolerance_OK_NOT_EXIST);
+                            DeleteErrorTolerance_OK_NOT_EXIST);
                         if ( del == false ) {
                             platform_dialog("Could not delete default canvas. Contents will be still there when you create a new canvas.",
                                 "Info");

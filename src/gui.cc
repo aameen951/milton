@@ -15,8 +15,9 @@
 #define NUM_BUTTONS 5
 #define BOUNDS_RADIUS_PX 80
 
+// If reset_gui is true, the default window position and size will be set.
 void
-gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f32 brush_window_height)
+gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f32 brush_window_height, PlatformSettings* prefs, b32 reset_gui)
 {
     float ui_scale = milton->gui->scale;
     MiltonGui* gui = milton->gui;
@@ -24,8 +25,28 @@ gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
     CanvasState* canvas = milton->canvas;
 
     // Layer window
-    ImGui::SetNextWindowPos(ImVec2(ui_scale*10, ui_scale*20 + (float)pbounds.bottom + brush_window_height ), ImGuiSetCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(ui_scale*300, ui_scale*220), ImGuiSetCond_FirstUseEver);
+
+    // Use default size on first program start on this computer.
+    f32 left   = ui_scale*10;
+    f32 top    = ui_scale*20 + (float)pbounds.bottom + brush_window_height;
+    f32 width  = ui_scale*300;
+    f32 height = ui_scale*230;
+    if ( reset_gui ) {
+        ImGui::SetNextWindowPos(ImVec2(left, top));
+        ImGui::SetNextWindowSize(ImVec2(width, height));
+    }
+    else {
+        if ( prefs->layer_window_width != 0 && prefs->layer_window_height != 0 ) {
+            // If there are preferences already, use those for the layer window.
+            left   = prefs->layer_window_left;
+            top    = prefs->layer_window_top;
+            width  = prefs->layer_window_width;
+            height = prefs->layer_window_height;
+        }
+
+        ImGui::SetNextWindowPos(ImVec2(left, top), ImGuiSetCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiSetCond_FirstUseEver);
+    }
 
     if ( ImGui::Begin(loc(TXT_layers)) ) {
         i32 angle = (milton->view->angle / PI) * 180;
@@ -251,18 +272,50 @@ gui_layer_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
         ImGui::EndChild();
         ImGui::EndGroup();
 
+        // Remember the current window layout for the next time the program runs.
+        ImVec2 pos  = ImGui::GetWindowPos();
+        ImVec2 size = ImGui::GetWindowSize();
+        prefs->layer_window_left   = pos.x;
+        prefs->layer_window_top    = pos.y;
+        prefs->layer_window_width  = size.x;
+        prefs->layer_window_height = size.y;
+
     } ImGui::End();
 }
 
 
-void
-gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, f32 brush_window_width)
+// gui_brush_window returns the height of the rendered brush tool window. This can be used to position other windows below it.
+// If reset_gui is true, the default window position and size will be set.
+i32
+gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, PlatformSettings* prefs, b32 reset_gui)
 {
     b32 show_brush_window = (current_mode_is_for_drawing(milton));
     auto imgui_window_flags = ImGuiWindowFlags_NoCollapse;
     MiltonGui* gui = milton->gui;
 
     const Rect pbounds = get_bounds_for_picker_and_colors(&gui->picker);
+
+    // Use default size on first program start on this computer.
+    f32 left = milton->gui->scale * 10;
+    f32 top = milton->gui->scale * 10 + (float)pbounds.bottom;
+    f32 width = milton->gui->scale * 300;
+    f32 height = milton->gui->scale * 230;
+    if ( reset_gui ) {
+        ImGui::SetNextWindowPos(ImVec2(left, top));
+        ImGui::SetNextWindowSize({width, height});
+    }
+    else {
+        if ( prefs->brush_window_width != 0 && prefs->brush_window_height ) {
+            // If there are preferences already, use those for the layer window.
+            left =   prefs->brush_window_left;
+            top =    prefs->brush_window_top;
+            width =  prefs->brush_window_width;
+            height = prefs->brush_window_height;
+        }
+
+        ImGui::SetNextWindowPos(ImVec2(left, top), ImGuiSetCond_FirstUseEver);
+        ImGui::SetNextWindowSize({width, height}, ImGuiSetCond_FirstUseEver);
+    }
 
     // Brush Window
     if ( show_brush_window ) {
@@ -300,16 +353,12 @@ gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
 
             if ( milton->current_mode != MiltonMode::PEN ) {
                 if ( ImGui::Button(loc(TXT_switch_to_brush)) ) {
-                    i32 f = input->flags;
-                    input->flags = (MiltonInputFlags)f;
                     input->mode_to_set = MiltonMode::PEN;
                 }
             }
 
             if ( milton->current_mode != MiltonMode::PRIMITIVE ) {
                 if ( ImGui::Button(loc(TXT_switch_to_primitive)) ) {
-                    i32 f = input->flags;
-                    input->flags = (MiltonInputFlags)f;
                     input->mode_to_set = MiltonMode::PRIMITIVE;
                 }
             }
@@ -322,10 +371,6 @@ gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
         }
 
         {
-            const f32 brush_settings_height = milton->gui->scale * 140;
-            ImGui::SetNextWindowPos(ImVec2(milton->gui->scale * 10 + brush_window_width, milton->gui->scale * 10 + (float)pbounds.bottom), ImGuiSetCond_FirstUseEver);
-            ImGui::SetNextWindowSize({milton->gui->scale * 200, brush_settings_height}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
-
             if (!(milton->working_stroke.flags & StrokeFlag_ERASER)) {
                 ImGui::CheckboxFlags(loc(TXT_opacity_pressure), reinterpret_cast<u32*>(&milton->working_stroke.flags), StrokeFlag_PRESSURE_TO_OPACITY);
                 if (milton->working_stroke.flags & StrokeFlag_PRESSURE_TO_OPACITY) {
@@ -345,20 +390,28 @@ gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, f3
             }
         }
 
-        // Important to place this before ImGui::End()
-        const v2i pos = {
-            (i32)(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x + milton_get_brush_radius(milton)),
-            (i32)(ImGui::GetWindowPos().y),
-        };
+        // Important to place this before ImGui::End(), position and size will be invalid after it.
+        ImVec2 pos  = ImGui::GetWindowPos();
+        ImVec2 size = ImGui::GetWindowSize();
+        // Remember the current window layout for the next time the program runs.
+        prefs->brush_window_left   = pos.x;
+        prefs->brush_window_top    = pos.y;
+        prefs->brush_window_width  = size.x;
+        prefs->brush_window_height = size.y;
         ImGui::End();  // Brushes
         if (( milton->gui->flags & MiltonGuiFlags_SHOWING_PREVIEW )) {
-            milton->gui->preview_pos = pos;
+            milton->gui->preview_pos = {
+                (i32)(pos.x + size.x + milton_get_brush_radius(milton)),
+                (i32)(pos.y),
+            };
         }
     }
+
+    return height;
 }
 
 void
-gui_menu(MiltonInput* input, PlatformState* platform, Milton* milton, b32& show_settings)
+gui_menu(MiltonInput* input, PlatformState* platform, Milton* milton, b32& show_settings, b32* reset_gui)
 {
     // Menu ----
     int menu_style_stack = 0;
@@ -536,7 +589,6 @@ gui_menu(MiltonInput* input, PlatformState* platform, Milton* milton, b32& show_
                 // Eye Dropper
                 if ( ImGui::MenuItem(loc(TXT_eye_dropper)) ) {
                     input->mode_to_set = MiltonMode::EYEDROPPER;
-                    milton->flags |= MiltonStateFlags_IGNORE_NEXT_CLICKUP;  // TODO: This is stupid and ugly. Might not even be needed anymore?
                 }
                 ImGui::EndMenu();
             }
@@ -555,6 +607,10 @@ gui_menu(MiltonInput* input, PlatformState* platform, Milton* milton, b32& show_
                         &milton->view->scale,
                         &milton->view->angle);
                     gpu_update_canvas(milton->renderer, milton->canvas, milton->view);
+                }
+
+                if ( ImGui::MenuItem(loc(TXT_reset_GUI)) ) {
+                    *reset_gui = true;
                 }
 
 #if MILTON_ENABLE_PROFILING
@@ -611,7 +667,7 @@ gui_menu(MiltonInput* input, PlatformState* platform, Milton* milton, b32& show_
 
 
 void
-milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
+milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton, PlatformSettings* prefs)
 {
     CanvasState* canvas = milton->canvas;
     MiltonGui* gui = milton->gui;
@@ -691,8 +747,9 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
 
 
     static b32 show_settings = false;
+    b32 reset_gui = false;
 
-    gui_menu(input, platform, milton, show_settings);
+    gui_menu(input, platform, milton, show_settings, &reset_gui);
 
     float ui_scale = milton->gui->scale;
 
@@ -703,48 +760,28 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
                                 && milton->current_mode != MiltonMode::HISTORY;
 
     if ( gui->visible && should_show_windows ) {
+        i32 brush_window_height = gui_brush_window(input, platform, milton, prefs, reset_gui);
 
-        /* ImGuiSetCond_Always        = 1 << 0, // Set the variable */
-        /* ImGuiSetCond_Once          = 1 << 1, // Only set the variable on the first call per runtime session */
-        /* ImGuiSetCond_FirstUseEver */
-
-        const f32 brush_window_width = milton->gui->scale * 290;
-        const f32 brush_window_height = milton->gui->scale * 180;
-
-        ImGui::SetNextWindowPos(ImVec2(milton->gui->scale * 10, milton->gui->scale * 10 + (float)pbounds.bottom), ImGuiSetCond_FirstUseEver);
-        ImGui::SetNextWindowSize({brush_window_width, brush_window_height}, ImGuiSetCond_FirstUseEver);  // We don't want to set it *every* time, the user might have preferences
-
-        gui_brush_window(input, platform, milton, brush_window_width);
-
-        gui_layer_window(input, platform, milton, brush_window_height);
+        gui_layer_window(input, platform, milton, brush_window_height, prefs, reset_gui);
 
         // Settings window
         if ( show_settings ) {
-            auto ok_cancel = [&](int i) {
-
-                char ok[64] = {};
-                snprintf(ok, array_count(ok), "%s##%d", loc(TXT_ok), i);
-                char cancel[64] = {};
-                snprintf(cancel, array_count(cancel), "%s##%d", loc(TXT_cancel), i);
-
-    			if (ImGui::Button(ok)) {
-    				milton_settings_save(milton->settings);
-    				show_settings = false;
-    			}
-    			ImGui::SameLine();
-    			if (ImGui::Button(cancel)) {
-    				show_settings = false;
-                    *milton->settings = *gui->original_settings;
-    			}
-            };
-
-
             ImGui::SetNextWindowSize(ImVec2(ui_scale*400, ui_scale*400),
                                      ImGuiSetCond_FirstUseEver);
             if ( ImGui::Begin(loc(TXT_settings)) ) {
-
-                ok_cancel(1);
+                if (ImGui::Button(loc(TXT_ok))) {
+                    milton_settings_save(milton->settings);
+                    show_settings = false;
+                }
+                
+                ImGui::SameLine();
+                if (ImGui::Button(loc(TXT_cancel))) {
+                    show_settings = false;
+                    *milton->settings = *gui->original_settings;
+                }
+                
                 ImGui::Separator();
+                ImGui::BeginChild("ScrollRegion");
 
                 ImGui::Text(loc(TXT_default_background_color));
 
@@ -757,11 +794,11 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
                     milton->settings->background_color = milton->view->background_color;
                 }
 
-				const float peek_range = 20;
-				int peek_out_percent = 100 * (milton->settings->peek_out_increment / peek_range);
+                const float peek_range = 20;
+                int peek_out_percent = 100 * (milton->settings->peek_out_increment / peek_range);
                 if (ImGui::SliderInt(loc(TXT_peek_out_increment_percent), &peek_out_percent, 0, 100)) {
-					milton->settings->peek_out_increment = (peek_out_percent / 100.0f) * peek_range;
-				}
+                    milton->settings->peek_out_increment = (peek_out_percent / 100.0f) * peek_range;
+                }
 
                 ImGui::Separator();
 
@@ -777,7 +814,7 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
                     snprintf(alt_lbl, array_count(alt_lbl), "alt##%d", (int)i);
 
                     char win_lbl[64] = {};
-					snprintf(win_lbl, array_count(win_lbl), "win##%d", (int)i);
+                    snprintf(win_lbl, array_count(win_lbl), "win##%d", (int)i);
 
 
                     ImGui::CheckboxFlags(control_lbl, (unsigned int*)&b->modifiers, Modifier_CTRL);
@@ -799,10 +836,7 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
                     ImGui::PopItemWidth();
                 }
 
-                ImGui::SetCursorPosY( ImGui::GetCursorPosY() + ui_scale*80 );
-
-				ok_cancel(2);
-
+                ImGui::EndChild();
             } ImGui::End();
         }
 
@@ -955,7 +989,7 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
 
             float hist[] = { poll, update, raster, GL, system };
             ImGui::PlotHistogram("Graph",
-                          (const float*)hist, array_count(hist));
+                            (const float*)hist, array_count(hist));
 
             {
                 static const int window_size = 100;
@@ -972,9 +1006,9 @@ milton_imgui_tick(MiltonInput* input, PlatformState* platform,  Milton* milton)
                 mavg /= window_size;
 
                 snprintf(msg, array_count(msg),
-                     "Total %f ms (%f ms m. avg)\n",
-                     sum,
-                     mavg);
+                         "Total %f ms (%f ms m. avg)\n",
+                         sum,
+                         mavg);
 
             }
             ImGui::Text(msg);

@@ -318,26 +318,26 @@ milton_load(Milton* milton)
         milton->view->working_layer_id = saved_working_layer_id;
 
         if ( milton_binary_version >= 5 ) {
-           v3f rgb;
-           READ(&rgb, sizeof(v3f), 1, fd);
-           gui_picker_from_rgb(&milton->gui->picker, rgb);
+            v3f rgb;
+            READ(&rgb, sizeof(v3f), 1, fd);
+            gui_picker_from_rgb(&milton->gui->picker, rgb);
         } else {
-           READ(&milton->gui->picker.data, sizeof(PickerData), 1, fd);
+            READ(&milton->gui->picker.data, sizeof(PickerData), 1, fd);
         }
 
 
         // Buttons
         {
-           i32 button_count = 0;
-           gui = milton->gui;
-           btn = gui->picker.color_buttons;
+            i32 button_count = 0;
+            gui = milton->gui;
+            btn = gui->picker.color_buttons;
 
-           READ(&button_count, sizeof(i32), 1, fd);
-           for ( i32 i = 0;
-                 btn!=NULL && i < button_count;
-                 ++i, btn=btn->next ) {
-              READ(&btn->rgba, sizeof(v4f), 1, fd);
-           }
+            READ(&button_count, sizeof(i32), 1, fd);
+            for ( i32 i = 0;
+                  btn!=NULL && i < button_count;
+                  ++i, btn=btn->next ) {
+                READ(&btn->rgba, sizeof(v4f), 1, fd);
+            }
         }
 
         // Brush
@@ -361,12 +361,12 @@ milton_load(Milton* milton)
                     READ(milton->brushes + i, sizeof(BrushPreV7), 1, fd);
                 }
             }
-			else if (milton_binary_version < 8) {
+            else if (milton_binary_version < 8) {
                 for (int i = 0; i < num_brushes; ++i) {
                     milton->brushes[i] = default_brush();
                     READ(milton->brushes + i, sizeof(BrushPreV8), 1, fd);
                 }
-			}
+            }
             else {
                 if (!read_brushes(milton->brushes, num_brushes, fd)) {
                     ok = false;
@@ -577,11 +577,11 @@ milton_save(Milton* milton)
                 if ( could_write_layer_contents ) {
                     b32 could_write_picker = true;
                     if ( milton_binary_version >= 5 ) {
-                       v3f rgb = gui_get_picker_rgb(milton->gui);
-                       could_write_picker = write_data(&rgb, sizeof(rgb), 1, fd);
+                        v3f rgb = gui_get_picker_rgb(milton->gui);
+                        could_write_picker = write_data(&rgb, sizeof(rgb), 1, fd);
                     }
                     else {
-                       could_write_picker = write_data(&milton->gui->picker.data, sizeof(PickerData), 1, fd);
+                        could_write_picker = write_data(&milton->gui->picker.data, sizeof(PickerData), 1, fd);
                     }
 
                     //
