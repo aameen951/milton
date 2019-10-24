@@ -1332,6 +1332,21 @@ gpu_clip_strokes_and_update(Arena* arena,
                             }
                         }
                     }
+                    if(debug->show_ctrl)
+                    {
+                        ws = stroke->bws;
+                        gpu_cook_stroke(arena, r, ws, CookStroke_UPDATE_WORKING_STROKE);
+                        push(clip_array, ws->render_element);
+                        if(debug->mark_points)
+                        {
+                            for(i32 j=0; j<ws->num_points; j++)
+                            {
+                                auto radius = 2;
+                                auto point = VEC2I(canvas_to_raster(view, ws->points[j]));
+                                gpu_add_debug_mark(r, point, radius, {0.0f,1.0f,0.0f,1.0f});
+                            }
+                        }
+                    }
                 }
             }
         }

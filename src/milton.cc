@@ -630,17 +630,20 @@ v2f get_vector_distance(CapturedStroke *cs, i32 s_idx, i32 e_idx, v2l bzo, v2f t
     }
     return closest_vd;
 }
-bool add_point_to_curve(CapturedStroke *cs, BezierCurve *cv, v2f p, i32 s_idx, i32 e_idx, v2l bzo, float max_error)
+bool add_point_to_curve(CapturedStroke *cs, BezierCurve *cv, v2f p, i32 s_idx, i32 e_idx, v2l bzo, float max_error, bool enforce_tangent, v2f tangent, b32 need_new_curve)
 {
     auto c = *cv;
     c.c2 += p - c.c3;
     c.c3 = p;
-    i32 max_iterations = 4;
+    i32 max_iterations = 20;
+    i32 N = 4;
+    float min_error = FLT_MAX;
+    v2f min_c1 = {};
+    v2f min_c2 = {};
     for(i32 iter=0; iter < max_iterations; iter++)
     {
         v2f f1 = {};
         v2f f2 = {};
-        i32 N = 5;
         for(i32 i=0; i<N; i++)
         {
             float t = (float)i/N;
@@ -651,6 +654,10 @@ bool add_point_to_curve(CapturedStroke *cs, BezierCurve *cv, v2f p, i32 s_idx, i
 
             f1 += 6.0f/N * t * (1-t) * (1-t) * vd;
             f2 += 6.0f/N * t * t * (1-t) * vd;
+        }
+        if(enforce_tangent)
+        {
+            f1 = DOT(f1, tangent) * tangent;
         }
         c.c1 += f1;
         c.c2 += f2;
@@ -664,11 +671,19 @@ bool add_point_to_curve(CapturedStroke *cs, BezierCurve *cv, v2f p, i32 s_idx, i
             auto vd = get_vector_distance(cs, s_idx, e_idx, bzo, tp);
             error += DOT(vd, vd);
         }
-        if(error <= max_error)
+        if(error < min_error)
         {
-            *cv = c;
-            return true;
+            min_error = error;
+            min_c1 = c.c1;
+            min_c2 = c.c2;
         }
+    }
+    if(min_error <= max_error || need_new_curve)
+    {
+        c.c1 = min_c1;
+        c.c2 = min_c2;
+        *cv = c;
+        return true;
     }
     return false;
 }
@@ -917,19 +932,31 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
             auto scale = (1.0f/cs->scale);
             i32 s_idx = 0;
             float max_error = dbg->sarah_frisken_max_error*dbg->sarah_frisken_max_error;
+            bool enforce_tangent = false;
+            auto tangent = v2f{};
+            auto tangent_n = v2f{};
 
             for(i32 idx = 1; idx < cs->points->count; )
             {
                 auto p = scale * v2l_to_v2f(cs->points->data[idx].point - bzo);
                 if(need_new_curve)
                 {
-                    s_idx = idx - 1;
-                    auto pp = scale * v2l_to_v2f(cs->points->data[idx-1].point - bzo);
+                    if(curves.count)
+                    {
+                        enforce_tangent = true;
+                        tangent = cv->c3 - cv->c2;
+                        tangent_n = normalized(tangent);
+                    }
                     cv = add(&curves);
-                    cv->c0 = cv->c1 = cv->c2 = cv->c3 = pp;
+                    auto pp = scale * v2l_to_v2f(cs->points->data[idx-1].point - bzo);
+                    cv->c0 = pp;
+                    cv->c1 = enforce_tangent ? pp + tangent : lerp(pp, p, 1.0f/3.0f);
+                    cv->c2 = lerp(pp, p, 2.0f/3.0f);
+                    cv->c3 = p;
+                    s_idx = idx - 1;
                 }
 
-                if(!add_point_to_curve(cs, cv, p, s_idx, idx, bzo, max_error))
+                if(!add_point_to_curve(cs, cv, p, s_idx, idx, bzo, max_error, enforce_tangent, tangent_n, need_new_curve))
                 {
                     mlt_assert(!need_new_curve);
                     need_new_curve = true;
@@ -941,12 +968,37 @@ void debug_update_stroke(CapturedStroke *cs, Milton *milton)
                 }
             }
 
+            {
+                auto bws = cs->bws;
+                bws->brush = cs->brush;
+                bws->brush.color = v4f{1,1,1,1};
+                bws->brush.alpha *= 0.5f;
+                bws->layer_id = milton->view->working_layer_id;
+                bws->render_element.count = 0;
+                bws->bounding_rect = rect_without_size();
+                reserve(cs->bws_points, curves.count * 4);
+                reserve(cs->bws_pressures, curves.count * 4);
+                bws->points = cs->bws_points->data;
+                bws->pressures = cs->bws_pressures->data;
+                bws->num_points = curves.count * 4;
+            }
+
             cs->ws_points->count = 0;
             cs->ws_pressures->count = 0;
 
             for(i32 c_idx = 0; c_idx < curves.count; c_idx++)
             {
                 auto c = curves.data[c_idx];
+
+                cs->bws_points->data[c_idx*4 + 0] = v2f_to_v2l((float)cs->scale * c.c0) + bzo;
+                cs->bws_points->data[c_idx*4 + 1] = v2f_to_v2l((float)cs->scale * c.c1) + bzo;
+                cs->bws_points->data[c_idx*4 + 2] = v2f_to_v2l((float)cs->scale * c.c2) + bzo;
+                cs->bws_points->data[c_idx*4 + 3] = v2f_to_v2l((float)cs->scale * c.c3) + bzo;
+                cs->bws_pressures->data[c_idx*4 + 0] = 1.0f;
+                cs->bws_pressures->data[c_idx*4 + 1] = 1.0f;
+                cs->bws_pressures->data[c_idx*4 + 2] = 1.0f;
+                cs->bws_pressures->data[c_idx*4 + 3] = 1.0f;
+
                 // TODO(ameen): This approach is not good. Instead break it into smaller bezier until all control
                 // points are on the same line.
                 auto len = magnitude(c.c1-c.c0)+magnitude(c.c2-c.c1)+magnitude(c.c3-c.c2);

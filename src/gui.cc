@@ -308,6 +308,9 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
         if ( ImGui::Checkbox("Show Raw", &dbg->show_raw) ) {
             dbg->full_render = true;
         }
+        if ( ImGui::Checkbox("Show Ctrl", &dbg->show_ctrl) ) {
+            dbg->full_render = true;
+        }
         if ( ImGui::Checkbox("Mark Points", &dbg->mark_points) ) {
             dbg->full_render = true;
         }
@@ -353,7 +356,7 @@ gui_stoke_debug_window(MiltonInput* input, PlatformState* platform, Milton* milt
             }
             else if(dbg->smooth_algorithm == SmoothAlgorithm_SarahFriskenAlg)
             {
-                toggle = ImGui::SliderFloat("Max Error", &dbg->sarah_frisken_max_error, 0.1f, 100.0f) || toggle;
+                toggle = ImGui::SliderFloat("Max Error", &dbg->sarah_frisken_max_error, 1.0f, 100.0f) || toggle;
             }
             if ( toggle ) {
                 for(i32 i=0; i<dbg->strokes->count; i++)

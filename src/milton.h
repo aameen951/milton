@@ -198,6 +198,9 @@ struct CapturedStroke
     Stroke ows[1];
     DArray<v2l> ows_points[1];
     DArray<f32> ows_pressures[1];
+    Stroke bws[1];
+    DArray<v2l> bws_points[1];
+    DArray<f32> bws_pressures[1];
 };
 struct StrokeDebugContext
 {
@@ -205,6 +208,7 @@ struct StrokeDebugContext
 
     bool visible;
     bool show_raw;
+    bool show_ctrl;
     bool mark_points;
     bool is_point_mode;
     bool need_new_point;
