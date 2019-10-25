@@ -321,6 +321,7 @@ gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, Pl
     if ( show_brush_window ) {
         if ( ImGui::Begin(loc(TXT_brushes), NULL, imgui_window_flags) ) {
             if ( milton->current_mode == MiltonMode::PEN ||
+                 milton->current_mode == MiltonMode::GRID ||
                  milton->current_mode == MiltonMode::PRIMITIVE ) {
                 const float pen_alpha = milton_get_brush_alpha(milton);
                 mlt_assert(pen_alpha >= 0.0f && pen_alpha <= 1.0f);
@@ -351,9 +352,22 @@ gui_brush_window(MiltonInput* input, PlatformState* platform, Milton* milton, Pl
                 milton->gui->flags |= (i32)MiltonGuiFlags_SHOWING_PREVIEW;
             }
 
+            if(milton->current_mode == MiltonMode::GRID)
+            {
+                ImGui::SliderInt(loc(TXT_grid_cols), &milton->working_grid->cols, 1, MILTON_MAX_GRID_COLS);
+                ImGui::SliderInt(loc(TXT_grid_rows), &milton->working_grid->rows, 1, MILTON_MAX_GRID_ROWS);
+                ImGui::SliderInt(loc(TXT_grid_tile_size), &milton->working_grid->tile_size, 1, MILTON_MAX_GRID_TILE_SIZE);
+            }
+            
             if ( milton->current_mode != MiltonMode::PEN ) {
                 if ( ImGui::Button(loc(TXT_switch_to_brush)) ) {
                     input->mode_to_set = MiltonMode::PEN;
+                }
+            }
+
+            if ( milton->current_mode != MiltonMode::GRID ) {
+                if ( ImGui::Button(loc(TXT_switch_to_grid)) ) {
+                    input->mode_to_set = MiltonMode::GRID;
                 }
             }
 
@@ -581,6 +595,9 @@ gui_menu(MiltonInput* input, PlatformState* platform, Milton* milton, b32& show_
                 if ( ImGui::MenuItem(loc(TXT_eraser)) ) {
                     input->mode_to_set = MiltonMode::ERASER;
                 }
+                if ( ImGui::MenuItem(loc(TXT_grid)) ) {
+                    input->mode_to_set = MiltonMode::GRID;
+                }
                 // Panning
                 char* move_str = platform->is_panning==false? loc(TXT_move_canvas) : loc(TXT_stop_moving_canvas);
                 if ( ImGui::MenuItem(move_str) ) {
@@ -628,8 +645,8 @@ gui_menu(MiltonInput* input, PlatformState* platform, Milton* milton, b32& show_
                 if ( ImGui::MenuItem(loc(TXT_milton_version)) ) {
                     char buffer[1024];
                     snprintf(buffer, array_count(buffer),
-                             "Milton version %d.%d.%d",
-                             MILTON_MAJOR_VERSION, MILTON_MINOR_VERSION, MILTON_MICRO_VERSION);
+                             "Milton version %d.%d.%dg%d",
+                             MILTON_MAJOR_VERSION, MILTON_MINOR_VERSION, MILTON_MICRO_VERSION, MILTON_GRID_VERSION);
                     platform_dialog(buffer, "Milton Version");
                 }
                 if (  ImGui::MenuItem(loc(TXT_website))  ) {

@@ -3,13 +3,13 @@
 
 [Setup]
 AppName=Milton
-AppVersion=1.9.1
+AppVersion=1.9.1g1
 DefaultDirName={pf}\Milton
 DefaultGroupName=Milton
 ;UninstallDisplayIcon={app}\Milton.exe
 Compression=lzma2
 SolidCompression=yes
-OutputBaseFilename=MiltonSetup_1.9.1_x64
+OutputBaseFilename=MiltonSetup_1.9.1g1_x64
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 ChangesAssociations=yes

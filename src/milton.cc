@@ -50,6 +50,9 @@ milton_get_brush_enum(Milton const* milton)
         case MiltonMode::PEN: {
             brush_enum = BrushEnum_PEN;
         } break;
+        case MiltonMode::GRID: {
+            brush_enum = BrushEnum_GRID;
+        } break;
         case MiltonMode::ERASER: {
             brush_enum = BrushEnum_ERASER;
         } break;
@@ -79,6 +82,9 @@ milton_update_brushes(Milton* milton)
         mlt_assert(brush->radius < FLT_MAX);
         if ( i == BrushEnum_PEN ) {
             // Alpha is set by the UI
+            brush->color = to_premultiplied(gui_get_picker_rgb(milton->gui), brush->alpha);
+        }
+        else if ( i == BrushEnum_GRID ) {
             brush->color = to_premultiplied(gui_get_picker_rgb(milton->gui), brush->alpha);
         }
         else if ( i == BrushEnum_ERASER ) {
@@ -156,6 +162,7 @@ static b32
 mode_is_for_drawing(MiltonMode mode)
 {
     b32 result = mode == MiltonMode::PEN ||
+            mode == MiltonMode::GRID ||
             mode == MiltonMode::ERASER ||
             mode == MiltonMode::PRIMITIVE ||
             mode == MiltonMode::DRAG_BRUSH_SIZE;
@@ -212,6 +219,126 @@ clear_stroke_redo(Milton* milton)
     }
 }
 
+template <typename T>
+T *add(DArray<T>* arr)
+{
+    if ( arr->data == NULL ) {
+        arr->capacity = 32;
+        arr->count = 0;
+        grow(arr);
+    }
+    else if ( arr->capacity <= arr->count ) {
+        grow(arr);
+    }
+    return &arr->data[arr->count++];
+}
+void push_line(Milton *milton, Grid *g, CanvasView *view, v2l p0, v2l p1)
+{
+    auto s = add(&g->strokes);
+    s->id = 0;
+    s->brush = g->brush;
+    s->points = g->points.data + g->points.count;
+    g->points.count += 2;
+    s->pressures = g->pressures.data + g->pressures.count;
+    g->pressures.count += 2;
+    s->num_points = 2;
+    s->points[0] = raster_to_canvas(view, p0);
+    s->points[1] = raster_to_canvas(view, p1);
+    s->pressures[0] = 1.0f;
+    s->pressures[1] = 1.0f;
+    s->layer_id = 0;
+    gpu_reset_stroke(milton->renderer, s->render_handle);
+}
+Rect
+bounding_box_for_stroke_or_empty(Stroke* stroke)
+{
+    Rect result;
+    if(stroke->num_points > 0)
+    {
+        Rect bb = bounding_rect_for_points(stroke->points, stroke->num_points);
+        result = rect_enlarge(bb, stroke->brush.radius);
+    }
+    else
+    {
+        result = rect_without_size();
+    }
+    return result;
+}
+static void
+milton_grid_input(Milton* milton, const MiltonInput* input, b32 end_stroke)
+{
+    auto wg = milton->working_grid;
+    if ( end_stroke && milton->grid_fsm == Grid_DRAWING) {
+        milton->grid_fsm = Grid_WAITING;
+        wg->need_submit = true;
+        wg->active = false;
+    }
+    else if (input->input_count > 0) {
+        v2l point = input->points[input->input_count - 1];
+        if ( milton->grid_fsm == Grid_WAITING ) {
+            milton->grid_fsm             = Grid_DRAWING;
+            wg->brush = milton_get_brush(milton);
+            wg->active = true;
+            wg->origin = point;
+            wg->layer_id = milton->view->working_layer_id;
+            wg->prev_bounding_box = rect_without_size();
+            wg->current_bounding_box = rect_without_size();
+        }
+        else if ( milton->grid_fsm == Grid_DRAWING ) {
+            wg->origin = point;
+        }
+
+        wg->strokes.count = 0;
+        wg->points.count = 0;
+        wg->pressures.count = 0;
+        i32 stroke_count = wg->cols + 1 + wg->rows + 1;
+
+        auto old_capacity = wg->strokes.capacity;
+        auto new_capacity = stroke_count;
+        reserve(&wg->strokes, stroke_count);
+        reserve(&wg->points, stroke_count*2);
+        reserve(&wg->pressures, stroke_count*2);
+
+        // NOTE(ameen): We need to clear the new data to zero. We cannot clear the entire array because it
+        // contains handles allocated GPU resources.
+        if(new_capacity > old_capacity)
+        {
+            auto byte_count = (new_capacity - old_capacity) * sizeof(*wg->strokes.data);
+            memset(wg->strokes.data+old_capacity, 0, byte_count);
+        }
+
+        // TODO(ameen): The following code causes line crossings to be more opaque than everywhere else. One
+        // solution is to draw the grid as small segments that doesn't cross each other. The renderer doesn't
+        // support easily adding new types of objects.
+        for(i64 i=0; i<wg->cols+1; i++)
+        {
+            auto x = wg->origin.x + i*wg->tile_size;
+            auto y0 = wg->origin.y;
+            auto y1 = wg->origin.y + wg->rows*wg->tile_size;
+            v2l p0 = {x, y0};
+            v2l p1 = {x, y1};
+            push_line(milton, wg, milton->view, p0, p1);
+        }
+        for(i64 i=0; i<wg->rows+1; i++)
+        {
+            auto y = wg->origin.y + i*wg->tile_size;
+            auto x0 = wg->origin.x;
+            auto x1 = wg->origin.x + wg->cols*wg->tile_size;
+            v2l p0 = {x0, y};
+            v2l p1 = {x1, y};
+            push_line(milton, wg, milton->view, p0, p1);
+        }
+
+        wg->prev_bounding_box = wg->current_bounding_box;
+        wg->current_bounding_box = rect_without_size();
+        for(i64 i=0; i<wg->strokes.count; i++)
+        {
+            auto s = wg->strokes.data + i;
+            wg->current_bounding_box = rect_union(wg->current_bounding_box, bounding_box_for_stroke_or_empty(s));
+        }
+        wg->update_box = rect_union(wg->prev_bounding_box, wg->current_bounding_box);
+    }
+}
 static void
 milton_primitive_input(Milton* milton, MiltonInput const* input, b32 end_stroke)
 {
@@ -644,6 +771,10 @@ milton_init(Milton* milton, i32 width, i32 height, f32 ui_scale, PATH_CHAR* file
 
     reset_working_stroke(milton);
 
+    milton->working_grid->cols = 8;
+    milton->working_grid->rows = 8;
+    milton->working_grid->tile_size = 60;
+    
     milton->current_mode = MiltonMode::PEN;
 
     milton->renderer = gpu_allocate_render_backend(&milton->root_arena);
@@ -706,6 +837,9 @@ milton_init(Milton* milton, i32 width, i32 height, f32 ui_scale, PATH_CHAR* file
             switch ( i ) {
             case BrushEnum_PEN: {
                 milton->brush_sizes[i] = 30;
+            } break;
+            case BrushEnum_GRID: {
+                milton->brush_sizes[i] = 3;
             } break;
             case BrushEnum_ERASER: {
                 milton->brush_sizes[i] = 40;
@@ -1428,17 +1562,34 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
         if ( (input->flags & MiltonInputFlags_UNDO) ) {
             // Grab undo elements. They might be from deleted layers, so discard dead results.
             while ( milton->canvas->history.count > 0 ) {
+                i32 count = 1;
+                bool is_grid = false;
+                if(milton->canvas->extra_history.count)
+                {
+                    if(milton->canvas->extra_history.data[milton->canvas->extra_history.count-1].history_id == milton->canvas->history.count)
+                    {
+                        count = milton->canvas->extra_history.data[milton->canvas->extra_history.count-1].stroke_count;
+                        push(&milton->canvas->extra_redo, pop(&milton->canvas->extra_history));
+                        is_grid = true;
+                    }
+                }
                 HistoryElement h = pop(&milton->canvas->history);
                 Layer* l = layer::get_by_id(milton->canvas->root_layer, h.layer_id);
                 // found a thing to undo.
                 if ( l ) {
-                    if ( l->strokes.count > 0 ) {
-                        Stroke* stroke_ptr = peek(&l->strokes);
+                    for(i32 i=0; i<count; i++)
+                    {
+                        if ( l->strokes.count <= 0 )break;
+                        if ( i > 0 ) h = pop(&milton->canvas->history);
                         Stroke stroke = pop(&l->strokes);
                         push(&milton->canvas->stroke_graveyard, stroke);
                         push(&milton->canvas->redo_stack, h);
 
                         milton->render_settings.do_full_redraw = true;
+                    }
+                    if(is_grid)
+                    {
+                        milton->canvas->extra_redo.data[milton->canvas->extra_redo.count-1].history_id = milton->canvas->redo_stack.count;
                     }
                     break;
                 }
@@ -1446,24 +1597,40 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
         }
         else if ( (input->flags & MiltonInputFlags_REDO) ) {
             if ( milton->canvas->redo_stack.count > 0 ) {
+                i32 s_count = 1;
+                bool is_grid = false;
+                if(milton->canvas->extra_redo.count)
+                {
+                    if(milton->canvas->extra_redo.data[milton->canvas->extra_redo.count-1].history_id == milton->canvas->redo_stack.count)
+                    {
+                        s_count = milton->canvas->extra_redo.data[milton->canvas->extra_redo.count-1].stroke_count;
+                        push(&milton->canvas->extra_history, pop(&milton->canvas->extra_redo));
+                        is_grid = true;
+                    }
+                }
                 HistoryElement h = pop(&milton->canvas->redo_stack);
                 switch ( h.type ) {
                 case HistoryElement_STROKE_ADD: {
                     Layer* l = layer::get_by_id(milton->canvas->root_layer, h.layer_id);
-                    if ( l && count(&milton->canvas->stroke_graveyard) > 0 ) {
-                        Stroke stroke = pop(&milton->canvas->stroke_graveyard);
-                        if ( stroke.layer_id == h.layer_id ) {
-                            push(&l->strokes, stroke);
-                            push(&milton->canvas->history, h);
+                    if ( l ) {
+                        for(i32 i=0; i<s_count; i++)
+                        {
+                            if ( count(&milton->canvas->stroke_graveyard) <= 0 ) break;
+                            if ( i > 0 ) h = pop(&milton->canvas->redo_stack);
 
-                            milton->render_settings.do_full_redraw = true;
+                            Stroke stroke = pop(&milton->canvas->stroke_graveyard);
+                            if ( stroke.layer_id == h.layer_id ) {
+                                push(&l->strokes, stroke);
+                                push(&milton->canvas->history, h);
 
-                            break;
+                                milton->render_settings.do_full_redraw = true;
+                            }
                         }
-
-                        stroke = pop(&milton->canvas->stroke_graveyard);  // Keep popping in case the graveyard has info from deleted layers
                     }
-
+                    if(is_grid)
+                    {
+                        milton->canvas->extra_history.data[milton->canvas->extra_history.count-1].history_id = milton->canvas->history.count;
+                    }
                 } break;
                 /* case HistoryElement_LAYER_DELETE: { */
                 /* } break; */
@@ -1531,6 +1698,9 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
                 // Input for primitive.
                 milton_primitive_input(milton, input, end_stroke);
             }
+            else if ( milton->current_mode == MiltonMode::GRID ) {
+                milton_grid_input(milton, input, end_stroke);
+            }
             else if ( milton->current_mode != MiltonMode::DRAG_BRUSH_SIZE )  {  // Input for eraser and pen
                 Stroke* ws = &milton->working_stroke;
                 auto prev_num_points = ws->num_points;
@@ -1593,7 +1763,57 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
             gui_deactivate(milton->gui);
             brush_outline_should_draw = false;
         } else {
-            if ( milton->working_stroke.num_points > 0 ) {
+            if(milton->current_mode == MiltonMode::GRID)
+            {
+                if(milton->working_grid->need_submit)
+                {
+                    milton->working_grid->need_submit = false;
+                    if(gui_mark_color_used(milton->gui))
+                    {
+                        gpu_update_picker(milton->renderer, &milton->gui->picker);
+                    }
+
+                    for(i64 i=0; i<milton->working_grid->strokes.count; i++)
+                    {
+                        auto ws = milton->working_grid->strokes.data + i;
+
+                        // TODO(ameen): Duplicate code.
+                        Stroke new_stroke = {};
+                        CanvasState* canvas = milton->canvas;
+                        copy_stroke(&canvas->arena, milton->view, ws, &new_stroke);
+                        {
+                            new_stroke.layer_id = milton->view->working_layer_id;
+                            new_stroke.bounding_rect = rect_union(bounding_box_for_stroke(&new_stroke),
+                                                                bounding_box_for_stroke(&new_stroke));
+                            new_stroke.id = milton->canvas->stroke_id_count++;
+                        }
+                        mlt_assert(new_stroke.num_points > 0);
+                        mlt_assert(new_stroke.num_points <= STROKE_MAX_POINTS);
+                        auto* stroke = layer::layer_push_stroke(milton->canvas->working_layer, new_stroke);
+
+                        // NOTE(ameen): Undo/Redo for grid as one step works as long as we're in the same
+                        // session of Milton. Once the data is serialized to file and deserialized again this
+                        // information is lost and Undo/Redo will act on each stroke in the grid. The reason
+                        // is I don't want to modify the file format because I want to maintain the ability to
+                        // port changes to newer versions of Milton.
+                        HistoryElement h = { 
+                            HistoryElement_STROKE_ADD, 
+                            milton->canvas->working_layer->id, 
+                        };
+                        push(&milton->canvas->history, h);
+                    }
+                    ExtraHistoryData ehd = { 
+                        (i32)milton->canvas->history.count,
+                        (i32)milton->working_grid->strokes.count,
+                    };
+                    push(&milton->canvas->extra_history, ehd);
+
+                    clear_stroke_redo(milton);
+
+                    milton->render_settings.do_full_redraw = true;
+                }
+            }
+            else if ( milton->working_stroke.num_points > 0 ) {
                 // We used the selected color to draw something. Push.
                 if (  (milton->current_mode == MiltonMode::PEN ||
                        milton->current_mode == MiltonMode::PRIMITIVE)
@@ -1859,13 +2079,23 @@ milton_update_and_render(Milton* milton, MiltonInput const* input)
         view_width  = bounds.right - bounds.left;
         view_height = bounds.bottom - bounds.top;
     }
+    else if ( milton->working_grid->active ) {
+        Rect bounds      = milton->working_grid->update_box;
+        bounds.top_left  = canvas_to_raster(milton->view, bounds.top_left);
+        bounds.bot_right = canvas_to_raster(milton->view, bounds.bot_right);
 
+        view_x           = bounds.left;
+        view_y           = bounds.top;
+
+        view_width  = bounds.right - bounds.left;
+        view_height = bounds.bottom - bounds.top;
+    }
     PROFILE_GRAPH_BEGIN(clipping);
 
     i64 render_scale = milton_render_scale(milton);
 
     gpu_clip_strokes_and_update(&milton->root_arena, milton->renderer, milton->view, render_scale,
-                                milton->canvas->root_layer, &milton->working_stroke,
+                                milton->canvas->root_layer, &milton->working_stroke, milton->working_grid,
                                 view_x, view_y, view_width, view_height, clip_flags);
     PROFILE_GRAPH_END(clipping);
 

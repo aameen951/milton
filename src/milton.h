@@ -15,6 +15,9 @@
 #define NO_PRESSURE_INFO            -1.0f
 #define MAX_INPUT_BUFFER_ELEMS      32
 #define MILTON_MAX_BRUSH_SIZE       300
+#define MILTON_MAX_GRID_COLS        128
+#define MILTON_MAX_GRID_ROWS        128
+#define MILTON_MAX_GRID_TILE_SIZE   200
 #define HOVER_FLASH_THRESHOLD_MS    500  // How long does the hidden brush hover show when it has changed size.
 #define MODE_STACK_MAX 64
 
@@ -36,6 +39,7 @@ enum class MiltonMode
     PEEK_OUT,
     DRAG_BRUSH_SIZE,
     TRANSFORM,  // Scale and rotate
+    GRID,
 
     MODE_COUNT,
 };
@@ -47,6 +51,7 @@ enum BrushEnum
     BrushEnum_PRIMITIVE,
 
     BrushEnum_NOBRUSH,  // Non-painting modes
+    BrushEnum_GRID,
 
     BrushEnum_COUNT,
 };
@@ -61,6 +66,11 @@ struct HistoryElement
 {
     int type;
     i32 layer_id;  // HistoryElement_STROKE_ADD
+};
+struct ExtraHistoryData
+{
+    i32 history_id;
+    i32 stroke_count;
 };
 
 struct MiltonGui;
@@ -80,7 +90,9 @@ struct CanvasState
     Layer*      working_layer;
 
     DArray<HistoryElement> history;
+    DArray<ExtraHistoryData> extra_history;
     DArray<HistoryElement> redo_stack;
+    DArray<ExtraHistoryData> extra_redo;
     //Layer**         layer_graveyard;
     DArray<Stroke>         stroke_graveyard;
 
@@ -92,6 +104,28 @@ enum PrimitiveFSM
     Primitive_WAITING,
     Primitive_DRAWING,
     Primitive_DONE,
+};
+enum GridFSM
+{
+    Grid_WAITING,
+    Grid_DRAWING,
+};
+struct Grid
+{
+    b32 active;
+    b32 need_submit;
+    Rect prev_bounding_box;
+    Rect current_bounding_box;
+    Rect update_box;
+    Brush brush;
+    v2l origin;
+    i32 layer_id;
+    i32 cols;
+    i32 rows;
+    i32 tile_size;
+    DArray<Stroke> strokes;
+    DArray<v2l> points;
+    DArray<f32> pressures;
 };
 
 #pragma pack(push, 1)
@@ -191,6 +225,7 @@ struct Milton
     i32         brush_sizes[BrushEnum_COUNT];  // In screen pixels
 
     Stroke      working_stroke;
+    Grid        working_grid[1];
     InterpolationState interpolation_state[1];
     // ----  // gui->picker.info also stored
 
@@ -210,6 +245,7 @@ struct Milton
     bool mode_gui_visibility[GuiVisibleCategory_COUNT];
 
     PrimitiveFSM primitive_fsm;
+    GridFSM grid_fsm;
 
     SmoothFilter* smooth_filter;
 
