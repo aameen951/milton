@@ -159,6 +159,13 @@ struct TransformMode
     v2f last_point;
 };
 
+struct InterpolationState
+{
+    v2l origin;
+    v2f points[4];
+    float pressures[4];
+    i32 point_count;
+};
 struct Milton
 {
     u32 flags;  // See MiltonStateFlags
@@ -184,6 +191,7 @@ struct Milton
     i32         brush_sizes[BrushEnum_COUNT];  // In screen pixels
 
     Stroke      working_stroke;
+    InterpolationState interpolation_state[1];
     // ----  // gui->picker.info also stored
 
     // Read only

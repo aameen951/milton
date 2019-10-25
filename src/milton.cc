@@ -321,6 +321,112 @@ milton_render_scale(Milton* milton)
 }
 
 static void
+interpolate_last_four_points(InterpolationState *is, Stroke *ws)
+{
+    mlt_assert(is->point_count >= 4);
+
+    ws->num_points--;
+
+    i32 idx = is->point_count;
+    v2f a = is->points[(idx - 4) % 4];
+    v2f b = is->points[(idx - 3) % 4];
+    v2f c = is->points[(idx - 2) % 4];
+    v2f d = is->points[(idx - 1) % 4];
+
+    float a_pressure = is->pressures[(idx - 4) % 4];
+    float b_pressure = is->pressures[(idx - 3) % 4];
+    float c_pressure = is->pressures[(idx - 2) % 4];
+    float d_pressure = is->pressures[(idx - 1) % 4];
+
+
+    float scale = 0.5f;
+    v2f p0 = a;
+    v2f p1 = b - ((a - b) * scale);
+    v2f p2 = c - ((d - c) * scale);
+    v2f p3 = d;
+
+    // Diffs to calculate angle
+    v2f d0 = p0 - p1;
+    v2f d1 = p2 - p1;
+    v2f d2 = p1 - p2;
+    v2f d3 = p3 - p2;
+
+    float n0 = fabs(DOT(d0, d1)) / (magnitude(d0) * magnitude(d1));
+    float n1 = fabs(DOT(d2, d3)) / (magnitude(d2) * magnitude(d3));
+
+    // If the sum of both angles is greater than this threshold, interpolate.
+    float cos_min_angle = 0.05f;
+    if ( 2 - n0 - n1 > cos_min_angle*2 )
+    {
+        v2f n = {};
+        n = n + p0 * 0.125f;
+        n = n + p1 * 0.375f;
+        n = n + p2 * 0.375f;
+        n = n + p3 * 0.125f;
+
+        stroke_append_point(ws, v2f_to_v2l(n) + is->origin, lerp(b_pressure, c_pressure, 0.5f));
+    }
+
+    stroke_append_point(ws, v2f_to_v2l(c) + is->origin, c_pressure);
+    stroke_append_point(ws, v2f_to_v2l(d) + is->origin, d_pressure);
+}
+float process_pressure(float input_pressure)
+{
+    f32 pressure = NO_PRESSURE_INFO;
+
+    if ( input_pressure != NO_PRESSURE_INFO ) {
+        f32 pressure_min = 0.01f;
+        pressure = pressure_min + input_pressure * (1.0f - pressure_min);
+    } else {
+        pressure = 1.0f;
+    }
+    return pressure;
+}
+#if 1
+static void
+milton_stroke_input(Milton* milton, MiltonInput const* input)
+{
+    if ( input->input_count == 0 ) {
+        return;
+    }
+
+    if ( milton->view->scale != milton_render_scale(milton) ) {
+        return;  // We can't draw while peeking.
+    }
+
+    auto ws = &milton->working_stroke;
+    auto is = milton->interpolation_state;
+
+    if(ws->num_points == 0)
+    {
+        is->point_count = 0;
+        is->origin = raster_to_canvas(milton->view, VEC2L(milton->view->screen_size/2));
+    }
+
+    ws->brush    = milton_get_brush(milton);
+    ws->layer_id = milton->view->working_layer_id;
+
+    for ( int input_i = 0; input_i < input->input_count; ++input_i ) {
+
+        f32 pressure = process_pressure(input->pressures[input_i]);
+        v2l canvas_point = raster_to_canvas(milton->view, input->points[input_i]);
+
+        i32 idx = is->point_count++ % 4;
+        is->points[idx] = v2l_to_v2f(canvas_point - is->origin);
+        is->pressures[idx] = pressure;
+
+        if(is->point_count < 4)
+        {
+            stroke_append_point(ws, canvas_point, pressure);
+        }
+        else
+        {
+            interpolate_last_four_points(is, ws);
+        }
+    }
+}
+#else
+static void
 milton_stroke_input(Milton* milton, MiltonInput const* input)
 {
     if ( input->input_count == 0 ) {
@@ -362,6 +468,7 @@ milton_stroke_input(Milton* milton, MiltonInput const* input)
         stroke_append_point(ws, canvas_point, pressure);
     }
 }
+#endif
 
 void
 milton_set_zoom_at_point_with_scale(Milton* milton, v2i new_zoom_center, i64 scale)
