@@ -41,7 +41,11 @@ init_localization()
         EN(TXT_brushes, "Brushes");
         EN(TXT_opacity, "Opacity");
         EN(TXT_brush_size, "Brush size");
+        EN(TXT_grid_cols, "Columns");
+        EN(TXT_grid_rows, "Rows");
+        EN(TXT_grid_tile_size, "Tile Size");
         EN(TXT_switch_to_brush, "Brush");
+        EN(TXT_switch_to_grid, "Grid");
         EN(TXT_switch_to_eraser, "Eraser");
         EN(TXT_switch_to_primitive, "Lines");
         EN(TXT_choose_background_color, "Choose background color");
@@ -76,6 +80,7 @@ init_localization()
         EN(TXT_redo, "Redo");
         EN(TXT_tools, "Tools");
         EN(TXT_brush, "Brush");
+        EN(TXT_grid, "Grid");
         EN(TXT_eraser, "Eraser");
         EN(TXT_zoom_in, "Zoom In");
         EN(TXT_zoom_out, "Zoom Out");
@@ -130,6 +135,7 @@ init_localization()
         EN(TXT_Action_TOGGLE_GUI, "Toggle GUI");
         EN(TXT_Action_MODE_ERASER, "Eraser");
         EN(TXT_Action_MODE_PEN, "Pen");
+        EN(TXT_Action_MODE_GRID, "Grid");
         EN(TXT_Action_MODE_EYEDROPPER, "Eyedropper");
         EN(TXT_Action_MODE_PRIMITIVE, "Primitive");
         EN(TXT_Action_SET_BRUSH_ALPHA_10, "Set alpha to 10%");
@@ -194,6 +200,7 @@ init_localization()
         g_command_abbreviations [TXT_quit]                  = C("Q");
         g_command_abbreviations [TXT_toggle_gui_visibility] = "TAB";
         g_command_abbreviations [TXT_brush]                 = "B";
+        g_command_abbreviations [TXT_grid]                  = "G";
         g_command_abbreviations [TXT_eraser]                = "E";
         g_command_abbreviations [TXT_undo]                  = C("Z");
         g_command_abbreviations [TXT_redo]                  = C("Shift+Z");
@@ -205,6 +212,7 @@ init_localization()
         g_command_abbreviations [TXT_increase_brush_size]   = " ] ";
         g_command_abbreviations [TXT_eye_dropper]           = "i";
         g_command_abbreviations [TXT_switch_to_brush]       = "B";
+        g_command_abbreviations [TXT_switch_to_grid]        = "G";
         g_command_abbreviations [TXT_switch_to_primitive]   = "L";
         g_command_abbreviations [TXT_switch_to_eraser]      = "E";
         g_command_abbreviations [TXT_peek_out]              = "`";

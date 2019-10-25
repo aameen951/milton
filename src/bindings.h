@@ -25,6 +25,7 @@ enum BindableAction
     Action_TOGGLE_GUI,
     Action_MODE_ERASER,
     Action_MODE_PEN,
+    Action_MODE_GRID,
     Action_MODE_EYEDROPPER,
     Action_MODE_PRIMITIVE,
     Action_SET_BRUSH_ALPHA_10,
