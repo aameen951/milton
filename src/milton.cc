@@ -862,6 +862,8 @@ milton_init(Milton* milton, i32 width, i32 height, f32 ui_scale, PATH_CHAR* file
     // Note: This will fill out uninitialized data like default layers.
     if (read_from_disk) { milton_load(milton); }
 
+    milton_grid_brush_settings_load(milton);
+
     milton_validate(milton);
 
     // Enable brush smoothing by default
