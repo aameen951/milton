@@ -903,7 +903,7 @@ milton_settings_load(MiltonSettings* settings)
     if ( fd ) {
         u16 struct_size = 0;
         if ( fread(&struct_size, sizeof(u16), 1, fd) ) {
-            if (struct_size <= sizeof(*settings)) {
+            if (struct_size == sizeof(*settings)) {
                 if ( fread(settings, sizeof(*settings), 1, fd) ) {
                     ok = true;
                 }
@@ -936,5 +936,65 @@ void milton_settings_save(MiltonSettings* settings)
     }
     if ( !ok ) {
         milton_log("Warning: could not correctly save settings file\n");
+    }
+}
+
+b32
+milton_grid_brush_settings_load(Milton *milton)
+{
+    PATH_CHAR settings_fname[MAX_PATH] = TO_PATH_STR("grid_brush_settings.bin"); {
+        platform_fname_at_config(settings_fname, MAX_PATH);
+    }
+    b32 ok = false;
+    auto* fd = platform_fopen(settings_fname, TO_PATH_STR("rb"));
+    if ( fd ) {
+        u16 struct_size = 0;
+        if ( fread(&struct_size, sizeof(u16), 1, fd) ) {
+            if (struct_size == sizeof(Brush)) {
+                if ( fread(&milton->brushes[BrushEnum_GRID], sizeof(Brush), 1, fd) ) {
+                if ( fread(&milton->brush_sizes[BrushEnum_GRID], sizeof(i32), 1, fd) ) {
+                if ( fread(&milton->working_grid->cols, sizeof(milton->working_grid->cols), 1, fd) ) {
+                if ( fread(&milton->working_grid->rows, sizeof(milton->working_grid->rows), 1, fd) ) {
+                if ( fread(&milton->working_grid->tile_size, sizeof(milton->working_grid->tile_size), 1, fd) ) {
+                    ok = true;
+                }
+                }
+                }
+                }
+                }
+            }
+        }
+    }
+    if ( !ok ) {
+        milton_log("Warning: Failed to read grid brush settings file\n");
+    }
+    return ok;
+}
+
+void milton_grid_brush_settings_save(Milton *milton)
+{
+    PATH_CHAR settings_fname[MAX_PATH] = TO_PATH_STR("grid_brush_settings.bin"); {
+        platform_fname_at_config(settings_fname, MAX_PATH);
+    }
+    b32 ok = false;
+    auto* fd = platform_fopen(settings_fname, TO_PATH_STR("wb"));
+    if ( fd ) {
+        u16 sz = sizeof(Brush);
+        if ( fwrite(&sz, sizeof(sz), 1, fd) ) {
+        if ( fwrite(&milton->brushes[BrushEnum_GRID], sz, 1, fd) ) {
+        if ( fwrite(&milton->brush_sizes[BrushEnum_GRID], sizeof(i32), 1, fd) ) {
+        if ( fwrite(&milton->working_grid->cols, sizeof(milton->working_grid->cols), 1, fd) ) {
+        if ( fwrite(&milton->working_grid->rows, sizeof(milton->working_grid->rows), 1, fd) ) {
+        if ( fwrite(&milton->working_grid->tile_size, sizeof(milton->working_grid->tile_size), 1, fd) ) {
+            ok = true;
+        }
+        }
+        }
+        }
+        }
+        }
+    }
+    if ( !ok ) {
+        milton_log("Warning: could not correctly save grid brush settings file\n");
     }
 }

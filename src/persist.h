@@ -36,4 +36,6 @@ void platform_settings_save(PlatformSettings* prefs);
 b32 milton_settings_load(MiltonSettings* settings);
 void milton_settings_save(MiltonSettings* settings);
 
+b32 milton_grid_brush_settings_load(Milton *milton);
+void milton_grid_brush_settings_save(Milton *milton);
 

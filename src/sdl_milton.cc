@@ -965,6 +965,7 @@ milton_main(bool is_fullscreen, char* file_to_open)
             platform.force_next_frame = false;
         }
     }
+    milton_grid_brush_settings_save(milton);
 
     platform_deinit(&platform);
 
