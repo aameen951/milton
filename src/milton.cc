@@ -538,6 +538,8 @@ milton_stroke_input(Milton* milton, MiltonInput const* input)
         f32 pressure = process_pressure(input->pressures[input_i]);
         v2l canvas_point = raster_to_canvas(milton->view, input->points[input_i]);
 
+        if(canvas_point == ws->points[ws->num_points-1]){continue;}
+
         i32 idx = is->point_count++ % 4;
         is->points[idx] = v2l_to_v2f(canvas_point - is->origin);
         is->pressures[idx] = pressure;
