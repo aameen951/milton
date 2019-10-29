@@ -135,7 +135,6 @@ init_localization()
         EN(TXT_Action_TOGGLE_GUI, "Toggle GUI");
         EN(TXT_Action_MODE_ERASER, "Eraser");
         EN(TXT_Action_MODE_PEN, "Pen");
-        EN(TXT_Action_MODE_GRID, "Grid");
         EN(TXT_Action_MODE_EYEDROPPER, "Eyedropper");
         EN(TXT_Action_MODE_PRIMITIVE, "Primitive");
         EN(TXT_Action_SET_BRUSH_ALPHA_10, "Set alpha to 10%");

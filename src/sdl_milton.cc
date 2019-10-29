@@ -150,6 +150,13 @@ shortcut_handle_key(Milton* milton, PlatformState* platform, SDL_Event* event, M
                 }
             }
 
+            if ( (!event->key.repeat) &&
+                 active_modifiers == Modifier_NONE &&
+                 active_key == 'g'  ) {
+                binding_dispatch_action((BindableAction)Action_MODE_GRID, input, milton, platform->pointer);
+                platform->force_next_frame = true;
+            }
+
         }
         if ( k == SDLK_SPACE && !is_keyup ) {
             platform->is_space_down = true;

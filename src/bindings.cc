@@ -68,7 +68,6 @@ set_default_bindings(MiltonBindings* bs)
     binding(bs, Modifier_NONE, 'm', Action_TOGGLE_MENU);
     binding(bs, Modifier_NONE, 'e', Action_MODE_ERASER);
     binding(bs, Modifier_NONE, 'b', Action_MODE_PEN);
-    binding(bs, Modifier_NONE, 'g', Action_MODE_GRID);
     binding(bs, Modifier_NONE, 'i', Action_MODE_EYEDROPPER);
     binding(bs, Modifier_NONE, 'l', Action_MODE_PRIMITIVE);
     binding(bs, Modifier_NONE, Binding::F1, Action_HELP);
