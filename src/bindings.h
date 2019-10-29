@@ -25,7 +25,6 @@ enum BindableAction
     Action_TOGGLE_GUI,
     Action_MODE_ERASER,
     Action_MODE_PEN,
-    Action_MODE_GRID,
     Action_MODE_EYEDROPPER,
     Action_MODE_PRIMITIVE,
     Action_SET_BRUSH_ALPHA_10,
@@ -57,6 +56,8 @@ enum BindableAction
 
     Action_COUNT_WITH_RELEASE,
 };
+
+#define Action_MODE_GRID (Action_COUNT_WITH_RELEASE+1)
 
 enum ModifierFlags
 {

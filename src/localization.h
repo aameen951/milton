@@ -120,7 +120,6 @@ enum Texts
     TXT_Action_TOGGLE_GUI,
     TXT_Action_MODE_ERASER,
     TXT_Action_MODE_PEN,
-    TXT_Action_MODE_GRID,
     TXT_Action_MODE_EYEDROPPER,
     TXT_Action_MODE_PRIMITIVE,
     TXT_Action_SET_BRUSH_ALPHA_10,
