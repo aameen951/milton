@@ -5,11 +5,11 @@
 
 #define MILTON_MAJOR_VERSION 1
 #define MILTON_MINOR_VERSION 9
-#define MILTON_MICRO_VERSION 0
+#define MILTON_MICRO_VERSION 1
 
 
 #if !defined(MILTON_DEBUG)  // Might be defined by cmake
-    #define MILTON_DEBUG 1
+    #define MILTON_DEBUG 0
 #endif
 
 
